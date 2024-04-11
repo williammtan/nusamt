@@ -154,6 +154,9 @@ def main():
     # Load model
     model = load_model(data_args, model_args, training_args, tokenizer, logger)
     collate_fn = DataCollatorForUL2(model, tokenizer) if data_args.use_ul2 else default_data_collator
+
+    import time 
+    time.sleep(30)
     
     # Initialize our Trainer
     trainer = LlmmtTrainer(
