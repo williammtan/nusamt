@@ -1,5 +1,5 @@
 OUTPUT_DIR=${1:-"./alma-7b-parallel-ft"}
-pairs=${2:-"bug-en"} # ,bjn-en,ace-en,ban-en,en-bug,en-bjn,en-ace,en-ban
+pairs=${2:-"bug-en,bjn-en,ace-en,ban-en,en-bug,en-bjn,en-ace,en-ban,bjn-en,ace-en,ban-en,en-bug,en-bjn,en-ace,en-ban"} # ,bjn-en,ace-en,ban-en,en-bug,en-bjn,en-ace,en-ban
 export HF_DATASETS_CACHE=".cache/huggingface_cache/datasets"
 export HF_TOKEN="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"
 export TRANSFORMERS_CACHE=".cache/models/"
@@ -16,7 +16,7 @@ accelerate launch --main_process_port ${port} --config_file configs/config_train
     --do_predict \
     --language_pairs ${pairs} \
     --load_best_model_at_end \
-    --fp16 \
+    --bf16 \
     --learning_rate 2e-5 \
     --weight_decay 0.01 \
     --gradient_accumulation_steps 1 \
@@ -24,8 +24,8 @@ accelerate launch --main_process_port ${port} --config_file configs/config_train
     --warmup_ratio 0.01 \
     --ignore_pad_token_for_loss \
     --ignore_prompt_token_for_loss \
-    --per_device_train_batch_size 4 \
-    --per_device_eval_batch_size 4 \
+    --per_device_train_batch_size 2 \
+    --per_device_eval_batch_size 2 \
     --evaluation_strategy steps \
     --eval_steps 0.1 \
     --save_strategy steps \

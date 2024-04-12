@@ -10,7 +10,7 @@ export LD=g++-11
 # random port between 30000 and 50000
 port=$(( RANDOM % (50000 - 30000 + 1 ) + 30000 ))
 
-accelerate launch --main_process_port ${port} --config_file configs/deepspeed_train_config.yaml \
+accelerate launch --main_process_port ${port} --config_file configs/config_train_zero3.yaml \
      run_llmmt.py \
     --model_name_or_path Yellow-AI-NLP/komodo-7b-base \
     --mmt_data_path  ./human_written_data/ \
@@ -21,11 +21,10 @@ accelerate launch --main_process_port ${port} --config_file configs/deepspeed_tr
     --do_predict \
     --language_pairs ${pairs} \
     --load_best_model_at_end \
-    --low_cpu_mem_usage \
-    --fp16 \
+    --bf16 \
     --learning_rate 2e-3 \
     --weight_decay 0.01 \
-    --gradient_accumulation_steps 4 \
+    --gradient_accumulation_steps 1 \
     --lr_scheduler_type inverse_sqrt \
     --warmup_ratio 0.01 \
     --ignore_pad_token_for_loss \
@@ -53,4 +52,4 @@ accelerate launch --main_process_port ${port} --config_file configs/deepspeed_tr
     --overwrite_cache
     
 ## Evaluation (BLEU, COMET)
-bash ./evals/eval_generation.sh ${OUTPUT_DIR} ${pairs}
+# bash ./evals/eval_generation.sh ${OUTPUT_DIR} ${pairs}
