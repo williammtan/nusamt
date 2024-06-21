@@ -494,15 +494,10 @@ def get_preprocessed_data(train_raw_data, valid_raw_data, test_raw_data, pairs, 
         inputs = []
         prompts = []
         for ex in examples["translation"]:
-            source_lang, target_lang = list(ex.keys())
-            if f"{source_lang}-{target_lang}" in pairs:
-                prompt = get_prompt(source_lang, target_lang, ex)
-                prompts.append(prompt)
-                inputs.append(prompt + ex[target_lang])
-            if f"{target_lang}-{source_lang}" in pairs:
-                prompt = get_prompt(target_lang, source_lang, ex)
-                prompts.append(prompt)
-                inputs.append(prompt + ex[source_lang])
+            source_lang, target_lang = lg_pair.split('-')
+            prompt = get_prompt(source_lang, target_lang, ex)
+            prompts.append(prompt)
+            inputs.append(prompt + ex[target_lang])
         model_inputs = tokenizer(inputs, max_length=data_args.max_source_length + data_args.max_new_tokens - 1, padding=padding, truncation=True, add_special_tokens=True)
         check_add_eos(model_inputs, tokenizer)
         labels = copy.deepcopy(model_inputs)
@@ -524,15 +519,10 @@ def get_preprocessed_data(train_raw_data, valid_raw_data, test_raw_data, pairs, 
         inputs = []
         prompts = []
         for ex in examples["translation"]:
-            source_lang, target_lang = list(ex.keys())
-            if f"{source_lang}-{target_lang}" in pairs:
-                prompt = get_prompt(source_lang, target_lang, ex)
-                prompts.append(prompt)
-                inputs.append(prompt + ex[target_lang])
-            if f"{target_lang}-{source_lang}" in pairs:
-                prompt = get_prompt(target_lang, source_lang, ex)
-                prompts.append(prompt)
-                inputs.append(prompt + ex[source_lang])
+            source_lang, target_lang = lg_pair.split('-')
+            prompt = get_prompt(source_lang, target_lang, ex)
+            prompts.append(prompt)
+            inputs.append(prompt + ex[target_lang])
         model_inputs = tokenizer(inputs, max_length=data_args.max_source_length + data_args.max_new_tokens, padding=padding, truncation=True, add_special_tokens=True)
         check_add_eos_right_pad(model_inputs, tokenizer)
         labels = copy.deepcopy(model_inputs)
