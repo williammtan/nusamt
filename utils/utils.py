@@ -67,19 +67,22 @@ class SavePeftModelCallback(TrainerCallback):
             open(pytorch_model_path, 'w').close()
         return control
 
+# LANGS = ["eng_Latn",
+#     "ind_Latn",
+#     "jav_Latn",
+#     "sun_Latn",
+#     "min_Latn",
+#     "bug_Latn",
+#     "bjn_Latn",
+#     "ace_Latn",
+#     "ban_Latn"]
+
 LANG_TABLE = {
     "en": "English",
-    "de": "German",
-    "fr": "French",
-    "cs": "Czech",
-    "is": "Icelandic",
-    "zh": "Chinese",
-    "ja": "Japanese",
-    "ru": "Russian",
-    "uk": "Ukrainian",
-    "ha": "Hausa",
-    "ro": "Romanian",
-    "gu": "Gujarati",
+    "id": "Indonesian",
+    "jv": "Javanese",
+    "su": "Sundanese",
+    "min": "Minangkabau",
     "bug": "Buginese",
     "bjn": "Banjarese",
     "ace": "Acehnese",
@@ -117,8 +120,8 @@ SUFFIX = {
     "uk": "\nУкраїнська:",
     "ha": "\nHausa:",
     "bug": "\nBasa Ugi:",
-    "bjn": "\nBasa Banjar",
-    "ace": "\nBasa Acèh",
+    "bjn": "\nBasa Banjar:",
+    "ace": "\nBasa Acèh:",
     "ban": "\nBasa Bali:"
 }
 
@@ -131,10 +134,13 @@ def load_mmt_dataset(pairs, data_args, model_args, training_args, logger):
         src_lang = pair.split("-")[0]
         tgt_lang = pair.split("-")[1]
 
-        # The directory is always "xxen", e.g., deen
-        first_lang = src_lang if src_lang != "en" else tgt_lang
-        second_lang = "en"
-        pair_dir = first_lang + second_lang
+        # # The directory is always "xxen", e.g., deen
+        # first_lang = src_lang if src_lang != "en" else tgt_lang
+        # second_lang = "en"
+        # pair_dir = first_lang + second_lang
+        first_lang = src_lang
+        second_lang = tgt_lang
+        pair_dir = first_lang + tgt_lang
             
         h_suffix = f"-{data_args.suffix}" if data_args.suffix else ""
         train_file = os.path.join(data_args.mmt_data_path, pair_dir, f"train.{first_lang}-{second_lang}{h_suffix}.json")
@@ -402,7 +408,7 @@ def load_model(data_args, model_args, training_args, tokenizer, logger):
             model = get_peft_model(model, config)
         print_trainable_parameters(model)
 
-    if "llama" in model_args.model_name_or_path or "komodo" in model_args.model_name_or_path:
+    if "llama" in model_args.model_name_or_path or "komodo" in model_args.model_name_or_path or "nusa" in model_args.model_name_or_path:
         model.config.pad_token_id = 0
         model.config.bos_token_id = 1
         model.config.eos_token_id = 2
@@ -443,7 +449,13 @@ def load_tokenizer(data_args, model_args, training_args, logger):
     if model_args.tokenizer_name:
         tokenizer = AutoTokenizer.from_pretrained(model_args.tokenizer_name, **tokenizer_kwargs)
     elif model_args.model_name_or_path:
-        if "llama" in model_args.model_name_or_path or "BigTranslate" in model_args.model_name_or_path or "ALMA" in model_args.model_name_or_path:
+        if "komodo" in model_args.model_name_or_path or "nusa" in model_args.model_name_or_path:
+            from tokenizer.tokenizer import LlamaTokenizerFastKomodo
+            tokenizer = LlamaTokenizerFastKomodo.from_pretrained(
+                model_args.model_name_or_path, 
+                **tokenizer_kwargs, 
+            )
+        elif "llama" in model_args.model_name_or_path or "BigTranslate" in model_args.model_name_or_path or "ALMA" in model_args.model_name_or_path:
             tokenizer = LlamaTokenizer.from_pretrained(
                 model_args.model_name_or_path, 
                 **tokenizer_kwargs, 
@@ -459,7 +471,7 @@ def load_tokenizer(data_args, model_args, training_args, logger):
             "You can do it from another script, save it, and load it from here, using --tokenizer_name."
         )
 
-    if "llama" in model_args.model_name_or_path or "komodo" in model_args.model_name_or_path:
+    if "llama" in model_args.model_name_or_path or "komodo" in model_args.model_name_or_path or "nusa" in model_args.model_name_or_path:
         tokenizer.pad_token_id = 0
         tokenizer.bos_token_id = 1
         tokenizer.eos_token_id = 2
@@ -659,9 +671,10 @@ def get_preprocessed_data(train_raw_data, valid_raw_data, test_raw_data, pairs, 
                         train_dataset = train_dataset.map(
                             mmt_train_eval_tok_func,
                             batched=True,
+                            keep_in_memory=True,
                             num_proc=data_args.preprocessing_num_workers,
                             remove_columns=column_names_mmt,
-                            cache_file_name=f"{os.environ['HF_DATASETS_CACHE']}/{model_args.model_name_or_path.split('/')[-1]}-train-mmt-{lg_pair}-{data_args.language_pairs}-{data_args.suffix}",
+                            # cache_file_name=f"{os.environ['HF_DATASETS_CACHE']}/{model_args.model_name_or_path.split('/')[-1]}-train-mmt-{lg_pair}-{data_args.suffix}",
                             load_from_cache_file=not data_args.overwrite_cache,
                             desc="Running tokenizer on MMT train dataset",
                         )
@@ -669,6 +682,7 @@ def get_preprocessed_data(train_raw_data, valid_raw_data, test_raw_data, pairs, 
                         train_dataset = train_dataset.map(
                             mmt_train_eval_tok_func,
                             batched=True,
+                            keep_in_memory=True,
                             remove_columns=column_names_mmt,
                         )    
                 processed_datasets.append(train_dataset)
@@ -682,10 +696,12 @@ def get_preprocessed_data(train_raw_data, valid_raw_data, test_raw_data, pairs, 
                 if not data_args.streaming:
                     train_dataset = train_dataset.map(
                         tokenize_function_train_mono,
+                        batch_size=2000,
                         batched=True,
+                        keep_in_memory=True,
                         num_proc=data_args.preprocessing_num_workers,
                         remove_columns=column_names_mmt,
-                        cache_file_name=f"{os.environ['HF_DATASETS_CACHE']}/{model_args.model_name_or_path.split('/')[-1]}-{data_args.mono_data_path.split('/')[-1]}",
+                        # cache_file_name=f"{os.environ['HF_DATASETS_CACHE']}/{model_args.model_name_or_path.split('/')[-1]}-{data_args.mono_data_path.split('/')[-1]}",
                         load_from_cache_file=not data_args.overwrite_cache,
                         desc="Running tokenizer on monolingual train dataset",
                     )
@@ -693,6 +709,7 @@ def get_preprocessed_data(train_raw_data, valid_raw_data, test_raw_data, pairs, 
                     train_dataset = train_dataset.map(
                         tokenize_function_train_mono,
                         batched=True,
+                        keep_in_memory=True,
                         remove_columns=column_names_mmt,
                     )
             processed_datasets.append(train_dataset)
@@ -702,6 +719,7 @@ def get_preprocessed_data(train_raw_data, valid_raw_data, test_raw_data, pairs, 
                 train_dataset = train_dataset.map(
                     tokenize_function_train_oscar_mono,
                     batched=True,
+                    keep_in_memory=True,
                     remove_columns=column_name_oscar,
                 )
             processed_datasets.append(train_dataset)
@@ -719,9 +737,10 @@ def get_preprocessed_data(train_raw_data, valid_raw_data, test_raw_data, pairs, 
                 eval_dataset = eval_dataset.map(
                     mmt_train_eval_tok_func,
                     batched=True,
+                    keep_in_memory=True,
                     num_proc=data_args.preprocessing_num_workers,
                     remove_columns=column_names_mmt,
-                    cache_file_name=f"{os.environ['HF_DATASETS_CACHE']}/{model_args.model_name_or_path.split('/')[-1]}-valid-mmt-{lg_pair}-{data_args.language_pairs}-{data_args.suffix}",
+                    # cache_file_name=f"{os.environ['HF_DATASETS_CACHE']}/{model_args.model_name_or_path.split('/')[-1]}-valid-mmt-{lg_pair}-{data_args.suffix}",
                     load_from_cache_file=not data_args.overwrite_cache,
                     desc="Running tokenizer valid dataset",
                 )
@@ -740,9 +759,10 @@ def get_preprocessed_data(train_raw_data, valid_raw_data, test_raw_data, pairs, 
                 test_dataset = test_dataset.map(
                     tokenize_function_test,
                     batched=True,
+                    keep_in_memory=True,
                     num_proc=data_args.preprocessing_num_workers,
                     remove_columns=[lg_pair],
-                    cache_file_name=f"{os.environ['HF_DATASETS_CACHE']}/{model_args.model_name_or_path.split('/')[-1]}-test-mmt-{lg_pair}-{data_args.language_pairs}-{data_args.suffix}",
+                    # cache_file_name=f"{os.environ['HF_DATASETS_CACHE']}/{model_args.model_name_or_path.split('/')[-1]}-test-mmt-{lg_pair}-{data_args.suffix}",
                     load_from_cache_file=not data_args.overwrite_cache,
                     desc="Running tokenizer test dataset",
                 )
@@ -834,10 +854,11 @@ def preprocess_cpo_data(train_raw_data, valid_raw_data, test_raw_data, pairs, to
                     train_dataset = train_dataset.map(
                         cpo_prompt_function,
                         batched=True,
+                        keep_in_memory=True,
                         batch_size=1,
                         num_proc=data_args.preprocessing_num_workers,
                         remove_columns=["translation"],
-                        cache_file_name=f"{os.environ['HF_DATASETS_CACHE']}/{model_args.model_name_or_path.split('/')[-1]}-train-mmt-{lg_pair}-{data_args.language_pairs}-{data_args.suffix}-CPO",
+                        # cache_file_name=f"{os.environ['HF_DATASETS_CACHE']}/{model_args.model_name_or_path.split('/')[-1]}-train-mmt-{lg_pair}-{data_args.suffix}-CPO",
                         load_from_cache_file=not data_args.overwrite_cache,
                         desc="Running CPO preprocessing",
                     )
@@ -845,6 +866,7 @@ def preprocess_cpo_data(train_raw_data, valid_raw_data, test_raw_data, pairs, to
                     train_dataset = train_dataset.map(
                         cpo_prompt_function,
                         batched=True,
+                        keep_in_memory=True,
                         batch_size=1,
                         remove_columns=["translation"],
                     )    
