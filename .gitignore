@@ -22,3 +22,5 @@ output-*
 human_written_data*/
 archive
 outputs/
+data/
+.env

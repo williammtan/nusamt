@@ -5,6 +5,7 @@ common:
     target: {{target}}
     nllb_source: {{nllb_source}}
     nllb_target: {{nllb_target}}
+    cache_dir: {{cache_dir}}
 
 steps:
   # 1. Read data
@@ -89,15 +90,8 @@ steps:
         - WhitespaceNormalizer: {}
         - RegExpSub:
             patterns: 
-              - ['^\w+:\s*', "", 1, []]
-              - ['^\d+\s*', "", 2, []]
               - ['[‘’]', "'", 0, []]
               - ['[“”]', "\"", 0, []]
-              # - ['\s+([,.?!:])', '\1', 0, []]
-              - ['^\s*[^\w\s]+', '', 0, []]
-              # - ['([,.?!:])([^\s])', '\1 \2', 0, []]
-          # lang_patterns:
-          #   id: 
 
 
   # 3. Filtering (length ratio, length max, weird characters)
@@ -130,70 +124,23 @@ steps:
             unit: word
         - LongWordFilter:
             threshold: 20
-
-  - type: score
-    parameters:
-      inputs:
-        - !varstr "{source}-{target}.{source}.filtered.gz"
-        - !varstr "{source}-{target}.{target}.filtered.gz"
-      output: !varstr "{source}-{target}.laser3scores.gz"
-      filters:
-        - LaserFilter:
-            languages: [!varstr "{nllb_source}", !varstr "{nllb_target}"]
-            chunksize: 100
-          module: laser_filter
-  
-  - type: sort
-    parameters:
-      inputs:
-        - !varstr "{source}-{target}.{source}.filtered.gz"
-        - !varstr "{source}-{target}.{target}.filtered.gz"
-      outputs:
-        - !varstr "{source}-{target}.{source}.filtered-sorted.gz"
-        - !varstr "{source}-{target}.{target}.filtered-sorted.gz"
-      values: !varstr "{source}-{target}.laser3scores.gz"
-      reverse: true
-      key: "LaserFilter"
-    
-  - type: head
-    parameters:
-      n: 200000 # limit at 200,000 examples
-      inputs:
-        - !varstr "{source}-{target}.{source}.filtered-sorted.gz"
-        - !varstr "{source}-{target}.{target}.filtered-sorted.gz"
-      outputs:
-        - !varstr "{source}-{target}.{source}.filtered-cut.gz"
-        - !varstr "{source}-{target}.{target}.filtered-cut.gz"
-  
-  - type: filter
-    parameters:
-      inputs:
-        - !varstr "{source}-{target}.{source}.filtered-cut.gz"
-        - !varstr "{source}-{target}.{target}.filtered-cut.gz"
-      outputs:
-        - !varstr "{source}-{target}.{source}.filtered-final.gz"
-        - !varstr "{source}-{target}.{target}.filtered-final.gz"
-      filters:
-        - LaserFilter:
-            threshold: 0.8
-            languages: [!varstr "{nllb_source}", !varstr "{nllb_target}"]
-            chunksize: 100
-          module: laser_filter
   
   - type: concatenate
     parameters:
       inputs:
-        - !varstr "{source}-{target}.{source}.filtered-cut.gz"
-        - !varstr "../../nusax/{source}.gz"
-        - !varstr "../../seed/{source}.gz"
+        - !varstr "{source}-{target}.{source}.filtered.gz"
+        - !varstr "{cache_dir}/nusax/{source}.gz"
+        - !varstr "{cache_dir}/seed/{source}.gz"
+        - !varstr "{cache_dir}/nusa_writes/{source}-{target}.{source}"
       output: !varstr "{source}-{target}.{source}.combined.gz"
     
   - type: concatenate
     parameters:
       inputs:
-        - !varstr "{source}-{target}.{target}.filtered-cut.gz"
-        - !varstr "../../nusax/{target}.gz"
-        - !varstr "../../seed/{target}.gz"
+        - !varstr "{source}-{target}.{target}.filtered.gz"
+        - !varstr "{cache_dir}/nusax/{target}.gz"
+        - !varstr "{cache_dir}/seed/{target}.gz"
+        - !varstr "{cache_dir}/nusa_writes/{source}-{target}.{target}"
       output: !varstr "{source}-{target}.{target}.combined.gz"
 
   - type: split
