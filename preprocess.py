@@ -7,7 +7,10 @@ import shutil
 import gzip
 import json
 import os
+import re
 
+from transformers import AutoTokenizer
+from vllm import LLM, SamplingParams
 from huggingface_hub import hf_hub_download
 from datasets import load_dataset
 from tqdm import tqdm
@@ -20,11 +23,18 @@ LANGUAGE_NAMES = ['Balinese', 'Acehnese', 'Banjar', 'Buginese', 'Minangkabau', '
 OPUS_LANGUAGE_IDS = ['ban', 'ace', 'bjn', 'bug', 'min', 'su', 'jv', 'id', 'en']
 NLLB_LANGUAGE_IDS = ['ban_Latn', 'ace_Latn', 'bjn_Latn', 'bug_Latn', 'min_Latn', 'sun_Latn', 'jav_Latn', 'ind_Latn', 'eng_Latn']
 
+LLAMA3_SYSTEM_PROMPT="Clean the data by identifying and fixing problems in parallel sentences. The problems include misalignment, repetition, incomplete translations, and inconsistent formatting. Provide the cleaned output without any repetition."
+
 # ENVIRONMENT SETTINGS
 CACHE_DIR = os.environ.get("CACHE_DIR") or ".cache"
 PREPROCESS_CACHE_DIR = os.path.join(CACHE_DIR, "preprocess")
 
 logging.basicConfig(level=logging.INFO)
+
+def batch(iterable, n=1):
+    l = len(iterable)
+    for ndx in range(0, l, n):
+        yield iterable[ndx:min(ndx + n, l)]
 
 def make_dir_if_not_exists(dirpath):
     if not os.path.isdir(dirpath):
@@ -240,7 +250,80 @@ def load_nllb_dataset_allenai(source_id: str, target_id: str):
     
     return nllb_dataset
 
-def download_nllb(idx1: int, idx2: int, lid_model: str, laser_score_threshold: float, lid_score_threshold: float, max_size: int, output_dir: str):
+class Cleaner:
+    def __init__(self, model_path, system_prompt=LLAMA3_SYSTEM_PROMPT):
+        self.model = LLM(model=model_path)
+        self.tokenizer = AutoTokenizer.from_pretrained("../data/cleaner/model")
+        self.system_prompt = system_prompt
+    
+    def _format_prompt(self, translation, lang1, lang2):
+        lang1_name = LANGUAGE_NAMES[NLLB_LANGUAGE_IDS.index(lang1)]
+        lang2_name = LANGUAGE_NAMES[NLLB_LANGUAGE_IDS.index(lang2)]
+        user_prompt = f"{lang1_name}: {translation[lang1]}\n{lang2_name}:{translation[lang2]}"
+        messages = [
+            {
+                "role": "system",
+                "content": self.system_prompt
+            },
+            {
+                "role": "user",
+                "content": user_prompt
+            }
+        ]
+        return self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+
+    def _parse_response(self, response, lang1, lang2):
+        """Parse a response given the source and target languages, returning a translation dict."""
+
+        lang1_name = LANGUAGE_NAMES[NLLB_LANGUAGE_IDS.index(lang1)] # TODO: evaluate if necessary to retry requests if responses cannot be parsed
+        lang2_name = LANGUAGE_NAMES[NLLB_LANGUAGE_IDS.index(lang2)]
+
+        re_pattern = r'{}:\s*([^\n]+)\n{}:\s*(.+)'.format(lang1_name, lang2_name)
+        match = re.search(re_pattern, response)
+        if match is None or len(match.groups()) != 4:
+            logging.debug(f"Unparsable response: \"{response}\", response will be saved as a empty string")
+            source_sentence = ""
+            target_sentence = ""
+        else:
+            source_sentence = match.group(2)
+            target_sentence = match.group(4)
+        
+        return {
+            lang1: source_sentence,
+            lang2: target_sentence
+        }
+    
+    def predict_batch(self, translations, batch_size=1000):
+        """Cleans a list of translation dicts and returns a list of cleaned translation dicts."""
+
+        cleaned_responses = []
+        language_pairs = []
+
+        for b in tqdm(batch(translations, batch_size), total=int(len(translations) / batch_size)):
+            formated_prompts = []
+            for translation in b:
+                lang1, lang2 = translation.keys()
+                formated_prompts.append(self._format_prompt(translation, lang1, lang2))
+                language_pairs.append((lang1, lang2))
+
+            results = self.model.generate(formated_prompts)
+            for output in results:
+                cleaned_responses.append(output.outputs[0].text)
+        
+        # Parse the results and convert back to translations
+        cleaned_translations = []
+        for i in range(len(translations)):
+            cleaned_translations.append(
+                self._parse_response(
+                    response=cleaned_responses[i], 
+                    lang1=language_pairs[i][0],
+                    lang2=language_pairs[i][1]
+                    )
+            )
+        
+        return cleaned_translations
+
+def download_nllb(idx1: int, idx2: int, cleaner: Cleaner, lid_model: str, laser_score_threshold: float, lid_score_threshold: float, max_size: int, output_dir: str):
     # Download from allenai/nllb huggingface dataset
     dataset = load_nllb_dataset_allenai(NLLB_LANGUAGE_IDS[idx1], NLLB_LANGUAGE_IDS[idx2])
 
@@ -288,11 +371,14 @@ def download_nllb(idx1: int, idx2: int, lid_model: str, laser_score_threshold: f
     translations = translations[:max_size]
     logging.info(f"Filtering completed. {len(translations)}/{len(dataset)} translations passed the thresholds.")
 
+    # Clean using the model
+    cleaned_translation = cleaner.predict_batch(translations)
+
     # Save to output_dir
     with gzip.open(os.path.join(output_dir, f"{OPUS_LANGUAGE_IDS[idx1]}-{OPUS_LANGUAGE_IDS[idx2]}.nllbsub.{OPUS_LANGUAGE_IDS[idx1]}.gz"), 'wt') as src_out:
-        src_out.write('\n'.join([t[NLLB_LANGUAGE_IDS[idx1]] for t in translations]))
+        src_out.write('\n'.join([t[NLLB_LANGUAGE_IDS[idx1]] for t in cleaned_translation]))
     with gzip.open(os.path.join(output_dir, f"{OPUS_LANGUAGE_IDS[idx1]}-{OPUS_LANGUAGE_IDS[idx2]}.nllbsub.{OPUS_LANGUAGE_IDS[idx2]}.gz"), 'wt') as tgt_out:
-        tgt_out.write('\n'.join([t[NLLB_LANGUAGE_IDS[idx2]] for t in translations]))
+        tgt_out.write('\n'.join([t[NLLB_LANGUAGE_IDS[idx2]] for t in cleaned_translation]))
 
 def process_filtered_files(idx1, idx2, output_dir, clean_output_dir):
     for (source, target) in [(OPUS_LANGUAGE_IDS[idx1], OPUS_LANGUAGE_IDS[idx2]), (OPUS_LANGUAGE_IDS[idx2], OPUS_LANGUAGE_IDS[idx1])]:
@@ -324,6 +410,8 @@ def main(args):
     download_seed(overwrite=args.overwrite_cache)
     download_nusa_writes(overwrite=args.overwrite_cache)
 
+    cleaner = Cleaner(args.cleaner)
+
     opus_dir = os.path.join(args.output_dir, "opus")
     clean_output_dir = os.path.join(args.output_dir, "clean")
     os.makedirs(opus_dir, exist_ok=True)
@@ -338,7 +426,7 @@ def main(args):
         config_filepath = write_template(idx1, idx2, args.template_yaml, run_output_dir, args.configs_dir)
         create_alignment_files(idx1, idx2, run_output_dir)
 
-        download_nllb(idx1, idx2, args.lid_model, args.laser_threshold, args.lid_threshold, args.max_nllb_size, run_output_dir)
+        download_nllb(idx1, idx2, cleaner, args.lid_model, args.laser_threshold, args.lid_threshold, args.max_nllb_size, run_output_dir)
 
         # Execute and wait pipeline execution
         opus_command = ["opusfilter", config_filepath]
@@ -359,6 +447,12 @@ if __name__ == "__main__":
         type=str,
         required=True,
         help="Comma-separated list of language pairs in OPUS format (e.g., en-ban,ban-en,id-ban,ban-id)"
+    )
+    parser.add_argument(
+        "--cleaner",
+        type=str,
+        required=True,
+        help="Path to finetuned cleaner llama-3 model"
     )
     parser.add_argument(
         "--output_dir",
