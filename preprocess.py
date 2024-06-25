@@ -22,11 +22,15 @@ NLLB_LANGUAGE_IDS = ['ban_Latn', 'ace_Latn', 'bjn_Latn', 'bug_Latn', 'min_Latn',
 CACHE_DIR = os.environ.get("CACHE_DIR") or ".cache"
 PREPROCESS_CACHE_DIR = os.path.join(CACHE_DIR, "preprocess")
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
+
+def make_dir_if_not_exists(dirpath):
+    if not os.path.isdir(dirpath):
+        os.makedirs(dirpath, exist_ok=True)
 
 def replace_multiple(string, dic):
     for k,v in dic.items():
-        string.replace(k, v)
+        string = string.replace(k, v)
     return string
 
 def sort_pair(pair):
@@ -183,6 +187,8 @@ def download_nusa_writes(overwrite=True):
     return nusa_dir
 
 def write_template(idx1, idx2, template_yaml_path, output_dir, configs_dir): # alr /opus and dir created
+    make_dir_if_not_exists(configs_dir)
+
     with open(template_yaml_path) as f:
         template = f.read()
     
@@ -191,7 +197,8 @@ def write_template(idx1, idx2, template_yaml_path, output_dir, configs_dir): # a
         "{{target}}": OPUS_LANGUAGE_IDS[idx2],
         "{{nllb_source}}": NLLB_LANGUAGE_IDS[idx1],
         "{{nllb_target}}": NLLB_LANGUAGE_IDS[idx2],
-        "{{output_directory}}": output_dir
+        "{{output_directory}}": output_dir,
+        "{{cache_dir}}": os.path.abspath(PREPROCESS_CACHE_DIR)
     })
 
     config_filepath = os.path.join(configs_dir, f"{OPUS_LANGUAGE_IDS[idx1]}-{OPUS_LANGUAGE_IDS[idx2]}_pipeline.yaml")
@@ -210,6 +217,7 @@ def create_alignment_files(idx1, idx2, output_dir):
         "WikiMatrix_v1_xml_{source}-{target}.xml.gz",
         "wikimedia_latest_xml_{source}-{target}.xml.gz"
     ]
+    make_dir_if_not_exists(output_dir)
 
     for filename in DEFAULT_ALIGNMENT_FILES:
         alignment_filepath = os.path.join(output_dir, filename.format(source=OPUS_LANGUAGE_IDS[idx1], target=OPUS_LANGUAGE_IDS[idx2]))
@@ -220,12 +228,13 @@ def create_alignment_files(idx1, idx2, output_dir):
 
 def load_nllb_dataset_allenai(source_id: str, target_id: str):
     try:
-        nllb_dataset = load_dataset("allenai/nllb", f"{source_id}-{target_id}", ignore_verifications=True)["train"]
+        nllb_dataset = load_dataset("allenai/nllb", f"{source_id}-{target_id}", verification_mode="no_checks", trust_remote_code=True)["train"]
     except ValueError:
         try:
-            nllb_dataset = load_dataset("allenai/nllb", f"{target_id}-{source_id}", ignore_verifications=True)["train"]
+            nllb_dataset = load_dataset("allenai/nllb", f"{target_id}-{source_id}", verification_mode="no_checks", trust_remote_code=True)["train"]
         except ValueError:
-            nllb_dataset = None
+            logging.warn(f"Could not download {source_id}-{target_id} pair from allenai/nllb!")
+            nllb_dataset = []
     
     return nllb_dataset
 
@@ -253,7 +262,7 @@ def download_nllb(idx1: int, idx2: int, laser_score_threshold: float, lid_score_
 
 def process_filtered_files(idx1, idx2, output_dir, clean_output_dir):
     for (source, target) in [(OPUS_LANGUAGE_IDS[idx1], OPUS_LANGUAGE_IDS[idx2]), (OPUS_LANGUAGE_IDS[idx2], OPUS_LANGUAGE_IDS[idx1])]:
-        direction_output_dir = os.path.join(clean_output_dir, f"{source}-{target}")
+        direction_output_dir = os.path.join(clean_output_dir, f"{source}{target}")
         os.makedirs(direction_output_dir, exist_ok=True)
 
         for subset in ["train", "test", "valid"]:
@@ -264,8 +273,8 @@ def process_filtered_files(idx1, idx2, output_dir, clean_output_dir):
                     for src_text, tgt_text in zip(src_file, tgt_file):
                         bitext_list.append({
                             "translation": {
-                                source: src_text,
-                                target: tgt_text
+                                source: src_text.strip("\n"),
+                                target: tgt_text.strip("\n")
                             }
                         })
                         src_outfile.write(src_text)
@@ -277,9 +286,9 @@ def process_filtered_files(idx1, idx2, output_dir, clean_output_dir):
     return direction_output_dir
 
 def main(args):
-    download_nusax(overwrite=args.overwrite)
-    download_seed(overwrite=args.overwrite)
-    download_nusa_writes(overwrite=args.overwrite)
+    download_nusax(overwrite=args.overwrite_cache)
+    download_seed(overwrite=args.overwrite_cache)
+    download_nusa_writes(overwrite=args.overwrite_cache)
 
     opus_dir = os.path.join(args.output_dir, "opus")
     clean_output_dir = os.path.join(args.output_dir, "clean")
@@ -290,6 +299,7 @@ def main(args):
         idx2 = OPUS_LANGUAGE_IDS.index(lang2)
 
         run_output_dir = os.path.join(opus_dir, f"{OPUS_LANGUAGE_IDS[idx1]}-{OPUS_LANGUAGE_IDS[idx2]}")
+        make_dir_if_not_exists(run_output_dir)
 
         config_filepath = write_template(idx1, idx2, args.template_yaml, run_output_dir, args.configs_dir)
         create_alignment_files(idx1, idx2, run_output_dir)
@@ -297,7 +307,10 @@ def main(args):
         download_nllb(idx1, idx2, args.laser_threshold, args.lid_threshold, args.max_nllb_size, run_output_dir)
 
         # Execute and wait pipeline execution
-        subprocess.run(["opusfilter", config_filepath], env=os.environ.update({"PYTHONPATH": os.getcwd()}))
+        opus_command = ["opusfilter", config_filepath]
+        if args.overwrite_opus:
+            opus_command.append("--overwrite")
+        subprocess.run(opus_command, env=os.environ.update({"PYTHONPATH": os.getcwd()}), check=True)
         
         process_filtered_files(idx1, idx2, run_output_dir, clean_output_dir)
 
@@ -331,7 +344,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--lid_threshold",
         type=float,
-        default=0.9,
+        default=0.95,
         help="LID score threshold"
     )
     parser.add_argument(
@@ -353,9 +366,14 @@ if __name__ == "__main__":
         help="Maximum size for NLLB dataset"
     )
     parser.add_argument(
-        "--overwrite",
+        "--overwrite_cache",
         action="store_true",
         help="Overwrite existing cache files"
+    )
+    parser.add_argument(
+        "--overwrite_opus",
+        action="store_true",
+        help="Overwrite opus files"
     )
 
     args = parser.parse_args()
