@@ -251,10 +251,11 @@ def load_nllb_dataset_allenai(source_id: str, target_id: str):
     return nllb_dataset
 
 class Cleaner:
-    def __init__(self, model_path, system_prompt=LLAMA3_SYSTEM_PROMPT):
+    def __init__(self, model_path, system_prompt=LLAMA3_SYSTEM_PROMPT, temperature=0):
         self.model = LLM(model=model_path)
         self.tokenizer = AutoTokenizer.from_pretrained("../data/cleaner/model")
         self.system_prompt = system_prompt
+        self.sampling_params = SamplingParams(temperature=temperature)
     
     def _format_prompt(self, translation, lang1, lang2):
         lang1_name = LANGUAGE_NAMES[NLLB_LANGUAGE_IDS.index(lang1)]
@@ -306,7 +307,7 @@ class Cleaner:
                 formated_prompts.append(self._format_prompt(translation, lang1, lang2))
                 language_pairs.append((lang1, lang2))
 
-            results = self.model.generate(formated_prompts)
+            results = self.model.generate(formated_prompts, self.sampling_params)
             for output in results:
                 cleaned_responses.append(output.outputs[0].text)
         
