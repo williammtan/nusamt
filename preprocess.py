@@ -1,10 +1,6 @@
-
 from collections import defaultdict
-from datasets import load_dataset
-import argparse
-import pandas as pd
-import numpy as np
 import subprocess
+import argparse
 import tempfile
 import logging
 import shutil
@@ -12,6 +8,12 @@ import gzip
 import json
 import os
 
+from huggingface_hub import hf_hub_download
+from datasets import load_dataset
+from tqdm import tqdm
+import pandas as pd
+import numpy as np
+import fasttext
 
 # CONSTANTS
 LANGUAGE_NAMES = ['Balinese', 'Acehnese', 'Banjar', 'Buginese', 'Minangkabau', 'Sundanese', 'Javanese', 'Indonesian', 'English']
@@ -238,21 +240,53 @@ def load_nllb_dataset_allenai(source_id: str, target_id: str):
     
     return nllb_dataset
 
-def download_nllb(idx1: int, idx2: int, laser_score_threshold: float, lid_score_threshold: float, max_size: int, output_dir: str):
+def download_nllb(idx1: int, idx2: int, lid_model: str, laser_score_threshold: float, lid_score_threshold: float, max_size: int, output_dir: str):
     # Download from allenai/nllb huggingface dataset
     dataset = load_nllb_dataset_allenai(NLLB_LANGUAGE_IDS[idx1], NLLB_LANGUAGE_IDS[idx2])
+
+    # Load LID model and run predictions
+    model_path = hf_hub_download(repo_id=lid_model, filename="model.bin")
+    model = fasttext.load_model(model_path)
+
+    # Collect texts for LID batch prediction
+    source_texts = [example["translation"][NLLB_LANGUAGE_IDS[idx1]] for example in dataset]
+    target_texts = [example["translation"][NLLB_LANGUAGE_IDS[idx2]] for example in dataset]
+
+    # Function to check if desired language is in top predictions
+    def is_desired_language(predictions, desired_lang):
+        for label, score in zip(predictions[0], predictions[1]):
+            if label == f"__label__{desired_lang}":
+                return score
+        return 0.0
+
+    # Function to predict LID in batches
+    def batch_predict(texts, lang_id, batch_size):
+        results = []
+        for i in tqdm(range(0, len(texts), batch_size), desc=f"LID prediction for {lang_id}:"):
+            batch = texts[i:i + batch_size]
+            batch_results = model.predict(batch, k=3)
+            results.extend(zip(*batch_results))
+        scores = [is_desired_language(result, lang_id) for result in results]
+        num_zero_scores = scores.count(0.0)
+        logging.info(f"No. unmatched LID scores: {num_zero_scores}")
+        return scores
+
+    # Predict LID for source and target texts in batches
+    source_lid_scores = batch_predict(source_texts, NLLB_LANGUAGE_IDS[idx1], 1000)
+    target_lid_scores = batch_predict(target_texts, NLLB_LANGUAGE_IDS[idx2], 1000)
 
     # Filter by laser score and lid scores
     translations = []
     laser_scores = []
-    for example in dataset:
-        if example["laser_score"] >= laser_score_threshold and example["source_sentence_lid"] > lid_score_threshold and example["target_sentence_lid"] > lid_score_threshold:
+    for i, example in enumerate(dataset):
+        if example["laser_score"] >= laser_score_threshold and source_lid_scores[i] > lid_score_threshold and target_lid_scores[i] > lid_score_threshold:
             translations.append(example["translation"])
             laser_scores.append(example["laser_score"])
 
     sorted_indices = np.argsort(laser_scores)
     translations = np.array(translations)[sorted_indices]
     translations = translations[:max_size]
+    logging.info(f"Filtering completed. {len(translations)}/{len(dataset)} translations passed the thresholds.")
 
     # Save to output_dir
     with gzip.open(os.path.join(output_dir, f"{OPUS_LANGUAGE_IDS[idx1]}-{OPUS_LANGUAGE_IDS[idx2]}.nllbsub.{OPUS_LANGUAGE_IDS[idx1]}.gz"), 'wt') as src_out:
@@ -304,7 +338,7 @@ def main(args):
         config_filepath = write_template(idx1, idx2, args.template_yaml, run_output_dir, args.configs_dir)
         create_alignment_files(idx1, idx2, run_output_dir)
 
-        download_nllb(idx1, idx2, args.laser_threshold, args.lid_threshold, args.max_nllb_size, run_output_dir)
+        download_nllb(idx1, idx2, args.lid_model, args.laser_threshold, args.lid_threshold, args.max_nllb_size, run_output_dir)
 
         # Execute and wait pipeline execution
         opus_command = ["opusfilter", config_filepath]
@@ -335,6 +369,12 @@ if __name__ == "__main__":
     
 
     # Not required args
+    parser.add_argument(
+        "--lid_model",
+        type=str,
+        default="cis-lmu/glotlid",
+        help="LID model ID in the Huggingface Hub"
+    )
     parser.add_argument(
         "--laser_threshold",
         type=float,
