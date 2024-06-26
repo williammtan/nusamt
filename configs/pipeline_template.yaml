@@ -131,7 +131,7 @@ steps:
         - !varstr "{source}-{target}.{source}.filtered.gz"
         - !varstr "{cache_dir}/nusax/{source}.gz"
         - !varstr "{cache_dir}/seed/{source}.gz"
-        - !varstr "{cache_dir}/nusa_writes/{source}-{target}.{source}"
+        - !varstr "{cache_dir}/nusa_writes/{source}-{target}.{source}.gz"
       output: !varstr "{source}-{target}.{source}.combined.gz"
     
   - type: concatenate
@@ -140,7 +140,7 @@ steps:
         - !varstr "{source}-{target}.{target}.filtered.gz"
         - !varstr "{cache_dir}/nusax/{target}.gz"
         - !varstr "{cache_dir}/seed/{target}.gz"
-        - !varstr "{cache_dir}/nusa_writes/{source}-{target}.{target}"
+        - !varstr "{cache_dir}/nusa_writes/{source}-{target}.{target}.gz"
       output: !varstr "{source}-{target}.{target}.combined.gz"
 
   - type: split
