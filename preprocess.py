@@ -253,7 +253,7 @@ def load_nllb_dataset_allenai(source_id: str, target_id: str):
 class Cleaner:
     def __init__(self, model_path, system_prompt=LLAMA3_SYSTEM_PROMPT, temperature=0):
         self.model = LLM(model=model_path)
-        self.tokenizer = AutoTokenizer.from_pretrained("../data/cleaner/model")
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path)
         self.system_prompt = system_prompt
         self.sampling_params = SamplingParams(temperature=temperature)
     
