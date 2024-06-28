@@ -6,7 +6,6 @@ flores-eval/
 openai/
 output-eval-ban-flores/
 output-eval-flores/
-tokenizer/
 human_written_data/
 human_written_data_old/
 human_written_data1/
