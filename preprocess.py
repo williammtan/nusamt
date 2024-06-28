@@ -103,7 +103,7 @@ def download_nusax(overwrite=True):
             texts = df[df.columns[NUSAX_COLUMNS.index(lang)]]
         else:
             texts = []
-        with gzip.open(os.path.join(nusax_dir, f"{lang}.gz"), "wt") as out:
+        with gzip.open(os.path.join(nusax_dir, f"{lang}.gz"), "wt", encoding="utf-8") as out:
             logging.debug(f"Writing {len(texts)} sentences for {lang}")
             out.write('\n'.join(texts))
     
@@ -128,14 +128,14 @@ def download_seed(overwrite=True):
     for lang in OPUS_LANGUAGE_IDS:
         nllb_id = NLLB_LANGUAGE_IDS[OPUS_LANGUAGE_IDS.index(lang)]
         if lang in NLLB_SEED_LANGS:
-            with open(os.path.join(datadir, nllb_id), 'r') as f:
+            with open(os.path.join(datadir, nllb_id), 'r', encoding="utf-8") as f:
                 data = f.read()
         else:
             data = ""
         
         logging.debug("Writing {} sentences for {}".format(len(data.split('\n'))-1, lang))
         
-        with gzip.open(os.path.join(seed_dir, f"{lang}.gz"), "wt") as out:
+        with gzip.open(os.path.join(seed_dir, f"{lang}.gz"), "wt", encoding="utf-8") as out:
             out.write(data)
 
     tmpdir.cleanup()
@@ -201,7 +201,7 @@ def download_nusa_writes(overwrite=True):
 def write_template(idx1, idx2, template_yaml_path, output_dir, configs_dir): # alr /opus and dir created
     make_dir_if_not_exists(configs_dir)
 
-    with open(template_yaml_path) as f:
+    with open(template_yaml_path, 'r', encoding='utf-8') as f:
         template = f.read()
     
     template = replace_multiple(template, {
@@ -214,7 +214,7 @@ def write_template(idx1, idx2, template_yaml_path, output_dir, configs_dir): # a
     })
 
     config_filepath = os.path.join(configs_dir, f"{OPUS_LANGUAGE_IDS[idx1]}-{OPUS_LANGUAGE_IDS[idx2]}_pipeline.yaml")
-    with open(config_filepath, 'w') as f:
+    with open(config_filepath, 'w', encoding='utf-8') as f:
         f.write(template)
     
     return config_filepath
@@ -235,7 +235,7 @@ def create_alignment_files(idx1, idx2, output_dir):
         alignment_filepath = os.path.join(output_dir, filename.format(source=OPUS_LANGUAGE_IDS[idx1], target=OPUS_LANGUAGE_IDS[idx2]))
         if not os.path.isfile(alignment_filepath):
             # Fill with empty
-            f = open(alignment_filepath, 'x')
+            f = open(alignment_filepath, 'x', encoding='utf-8')
             f.close()
 
 def load_nllb_dataset_allenai(source_id: str, target_id: str):
@@ -251,11 +251,11 @@ def load_nllb_dataset_allenai(source_id: str, target_id: str):
     return nllb_dataset
 
 class Cleaner:
-    def __init__(self, model_path, system_prompt=LLAMA3_SYSTEM_PROMPT, temperature=0):
-        self.model = LLM(model=model_path)
+    def __init__(self, model_path, system_prompt=LLAMA3_SYSTEM_PROMPT, temperature=0, n_gpus=4):
+        self.model = LLM(model=model_path, tensor_parallel_size=n_gpus)
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
         self.system_prompt = system_prompt
-        self.sampling_params = SamplingParams(temperature=temperature)
+        self.sampling_params = SamplingParams(temperature=temperature, max_tokens=1024)
     
     def _format_prompt(self, translation, lang1, lang2):
         lang1_name = LANGUAGE_NAMES[NLLB_LANGUAGE_IDS.index(lang1)]
@@ -279,6 +279,8 @@ class Cleaner:
         lang1_name = LANGUAGE_NAMES[NLLB_LANGUAGE_IDS.index(lang1)] # TODO: evaluate if necessary to retry requests if responses cannot be parsed
         lang2_name = LANGUAGE_NAMES[NLLB_LANGUAGE_IDS.index(lang2)]
 
+        response = response.replace('<|eot_id|>', '') # Remove end token for llama3
+
         re_pattern = r'{}:\s*([^\n]+)\n{}:\s*(.+)'.format(lang1_name, lang2_name)
         match = re.search(re_pattern, response)
         if match is None or len(match.groups()) != 4:
@@ -294,22 +296,22 @@ class Cleaner:
             lang2: target_sentence
         }
     
-    def predict_batch(self, translations, batch_size=1000):
+    def predict_batch(self, translations):
         """Cleans a list of translation dicts and returns a list of cleaned translation dicts."""
 
-        cleaned_responses = []
+        formated_prompts = []
         language_pairs = []
 
-        for b in tqdm(batch(translations, batch_size), total=int(len(translations) / batch_size)):
-            formated_prompts = []
-            for translation in b:
-                lang1, lang2 = translation.keys()
-                formated_prompts.append(self._format_prompt(translation, lang1, lang2))
-                language_pairs.append((lang1, lang2))
-
-            results = self.model.generate(formated_prompts, self.sampling_params)
-            for output in results:
-                cleaned_responses.append(output.outputs[0].text)
+        for translation in translations:
+            lang1, lang2 = translation.keys()
+            formated_prompts.append(self._format_prompt(translation, lang1, lang2))
+            language_pairs.append((lang1, lang2))
+        
+        results = self.model.generate(formated_prompts, self.sampling_params)
+        cleaned_responses = [
+            output.outputs[0].text
+            for output in results
+        ]
         
         # Parse the results and convert back to translations
         cleaned_translations = []
@@ -389,8 +391,8 @@ def process_filtered_files(idx1, idx2, output_dir, clean_output_dir):
         for subset in ["train", "test", "valid"]:
             bitext_list = []
 
-            with gzip.open(os.path.join(output_dir, f"{source}-{target}.{source}.{subset}.gz"), 'rt') as src_file, gzip.open(os.path.join(output_dir, f"{source}-{target}.{target}.{subset}.gz"), 'rt') as tgt_file:
-                with open(os.path.join(direction_output_dir, f"{subset}.{source}-{target}.{source}"), 'w') as src_outfile, open(os.path.join(direction_output_dir, f"{subset}.{source}-{target}.{target}"), 'w') as tgt_outfile:
+            with gzip.open(os.path.join(output_dir, f"{source}-{target}.{source}.{subset}.gz"), 'rt', encoding="utf-8") as src_file, gzip.open(os.path.join(output_dir, f"{source}-{target}.{target}.{subset}.gz"), 'rt', encoding="utf-8") as tgt_file:
+                with open(os.path.join(direction_output_dir, f"{subset}.{source}-{target}.{source}"), 'w', encoding="utf-8") as src_outfile, open(os.path.join(direction_output_dir, f"{subset}.{source}-{target}.{target}"), 'w', encoding="utf-8") as tgt_outfile:
                     for src_text, tgt_text in zip(src_file, tgt_file):
                         bitext_list.append({
                             "translation": {
@@ -401,7 +403,7 @@ def process_filtered_files(idx1, idx2, output_dir, clean_output_dir):
                         src_outfile.write(src_text)
                         tgt_outfile.write(tgt_text)
 
-            with open(os.path.join(direction_output_dir, f"{subset}.{source}-{target}.json"), 'w') as j:
+            with open(os.path.join(direction_output_dir, f"{subset}.{source}-{target}.json"), 'w', encoding="utf-8") as j:
                 json.dump(bitext_list, j)
     
     return direction_output_dir
@@ -411,8 +413,7 @@ def main(args):
     download_seed(overwrite=args.overwrite_cache)
     download_nusa_writes(overwrite=args.overwrite_cache)
 
-    cleaner = Cleaner(args.cleaner)
-
+    cleaner = Cleaner(args.cleaner, n_gpus=args.n_gpus)
     opus_dir = os.path.join(args.output_dir, "opus")
     clean_output_dir = os.path.join(args.output_dir, "clean")
     os.makedirs(opus_dir, exist_ok=True)
@@ -465,6 +466,12 @@ if __name__ == "__main__":
 
     # Not required args
     parser.add_argument(
+        "--n_gpus",
+        type=int,
+        default=1,
+        help="Number of GPUs"
+    )
+    parser.add_argument(
         "--lid_model",
         type=str,
         default="cis-lmu/glotlid",
@@ -479,7 +486,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--lid_threshold",
         type=float,
-        default=0.95,
+        default=0.9,
         help="LID score threshold"
     )
     parser.add_argument(
