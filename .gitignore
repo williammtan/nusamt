@@ -1,4 +1,4 @@
-*/__pycache__/*
+__pycache__/
 archive/*
 .ipynb_checkpoints/
 ban-data/
@@ -23,3 +23,4 @@ archive
 outputs/
 data/
 .env
+wandb/
