@@ -29,7 +29,7 @@ LLAMA3_SYSTEM_PROMPT="Clean the data by identifying and fixing problems in paral
 CACHE_DIR = os.environ.get("CACHE_DIR") or ".cache"
 PREPROCESS_CACHE_DIR = os.path.join(CACHE_DIR, "preprocess")
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 
 def batch(iterable, n=1):
     l = len(iterable)
@@ -187,7 +187,7 @@ def download_nusa_writes(overwrite=True):
     for lang_pair, examples in data_dict.items():
         lang1, lang2 = lang_pair.split('-')
         base_filepath = os.path.join(nusa_dir, lang_pair) # eg. nusa_writes/ban-en.en
-        with gzip.open(base_filepath + "." + lang1 + ".gz", 'wt') as f1, gzip.open(base_filepath + "." + lang2 + ".gz", 'wt') as f2:
+        with gzip.open(base_filepath + "." + lang1 + ".gz", 'wt', encoding="utf-8") as f1, gzip.open(base_filepath + "." + lang2 + ".gz", 'wt', encoding="utf-8") as f2:
             for sent1, sent2 in examples:
                 f1.write(sent1 + '\n')
                 f2.write(sent2 + '\n')
@@ -260,7 +260,7 @@ class Cleaner:
     def _format_prompt(self, translation, lang1, lang2):
         lang1_name = LANGUAGE_NAMES[NLLB_LANGUAGE_IDS.index(lang1)]
         lang2_name = LANGUAGE_NAMES[NLLB_LANGUAGE_IDS.index(lang2)]
-        user_prompt = f"{lang1_name}: {translation[lang1]}\n{lang2_name}:{translation[lang2]}"
+        user_prompt = f"{lang1_name}: {translation[lang1]}\n{lang2_name}: {translation[lang2]}"
         messages = [
             {
                 "role": "system",
@@ -271,7 +271,7 @@ class Cleaner:
                 "content": user_prompt
             }
         ]
-        return self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        return self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)[:-1]
 
     def _parse_response(self, response, lang1, lang2):
         """Parse a response given the source and target languages, returning a translation dict."""
@@ -281,16 +281,15 @@ class Cleaner:
 
         response = response.replace('<|eot_id|>', '') # Remove end token for llama3
 
-        re_pattern = r'{}:\s*([^\n]+)\n{}:\s*(.+)'.format(lang1_name, lang2_name)
-        match = re.search(re_pattern, response)
-        if match is None or len(match.groups()) != 4:
-            logging.debug(f"Unparsable response: \"{response}\", response will be saved as a empty string")
+        try:
+            source_sentence, target_sentence = response.split(f"\n{lang2_name}:")
+            source_sentence = source_sentence.replace(f"{lang1_name}: ", "").strip()
+            target_sentence = target_sentence.strip()
+        except ValueError:
+            print(f"Unparsable response: \"{repr(response)}\", response will be saved as a empty string")
             source_sentence = ""
             target_sentence = ""
-        else:
-            source_sentence = match.group(2)
-            target_sentence = match.group(4)
-        
+
         return {
             lang1: source_sentence,
             lang2: target_sentence
@@ -316,12 +315,14 @@ class Cleaner:
         # Parse the results and convert back to translations
         cleaned_translations = []
         for i in range(len(translations)):
-            cleaned_translations.append(
-                self._parse_response(
+            t = self._parse_response(
                     response=cleaned_responses[i], 
                     lang1=language_pairs[i][0],
                     lang2=language_pairs[i][1]
                     )
+            if t[list(t.keys())[0]] == "": print(formated_prompts[i])
+            cleaned_translations.append(
+                t
             )
         
         return cleaned_translations
@@ -378,9 +379,9 @@ def download_nllb(idx1: int, idx2: int, cleaner: Cleaner, lid_model: str, laser_
     cleaned_translation = cleaner.predict_batch(translations)
 
     # Save to output_dir
-    with gzip.open(os.path.join(output_dir, f"{OPUS_LANGUAGE_IDS[idx1]}-{OPUS_LANGUAGE_IDS[idx2]}.nllbsub.{OPUS_LANGUAGE_IDS[idx1]}.gz"), 'wt') as src_out:
+    with gzip.open(os.path.join(output_dir, f"{OPUS_LANGUAGE_IDS[idx1]}-{OPUS_LANGUAGE_IDS[idx2]}.nllbsub.{OPUS_LANGUAGE_IDS[idx1]}.gz"), 'wt', encoding="utf-8") as src_out:
         src_out.write('\n'.join([t[NLLB_LANGUAGE_IDS[idx1]] for t in cleaned_translation]))
-    with gzip.open(os.path.join(output_dir, f"{OPUS_LANGUAGE_IDS[idx1]}-{OPUS_LANGUAGE_IDS[idx2]}.nllbsub.{OPUS_LANGUAGE_IDS[idx2]}.gz"), 'wt') as tgt_out:
+    with gzip.open(os.path.join(output_dir, f"{OPUS_LANGUAGE_IDS[idx1]}-{OPUS_LANGUAGE_IDS[idx2]}.nllbsub.{OPUS_LANGUAGE_IDS[idx2]}.gz"), 'wt', encoding="utf-8") as tgt_out:
         tgt_out.write('\n'.join([t[NLLB_LANGUAGE_IDS[idx2]] for t in cleaned_translation]))
 
 def process_filtered_files(idx1, idx2, output_dir, clean_output_dir):
