@@ -243,7 +243,7 @@ def main(language_directions, output_dir, model_path, url_json_path, max_sentenc
         run_output_dir = os.path.join(opus_dir, f"{lang1}-{lang2}")
         os.makedirs(run_output_dir, exist_ok=True)
         with gzip.open(os.path.join(run_output_dir, f"{lang1}-{lang2}.{lang1}.gz"), 'wt') as f:
-            f.write('\n'.join(translated_sentences))
+            f.write('\n'.join([s.encode('utf-8') for s in translated_sentences]))
         
         with gzip.open(os.path.join(run_output_dir, f"{lang1}-{lang2}.{lang2}.gz"), 'wt') as f:
             f.write('\n'.join(sentences))

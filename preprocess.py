@@ -616,7 +616,7 @@ def main(args):
         config_filepath = write_template(idx1, idx2, args.template_yaml, run_output_dir, args.configs_dir)
         create_alignment_files(idx1, idx2, run_output_dir)
 
-        # download_nllb(idx1, idx2, cleaner, args.lid_model, args.laser_threshold[i], args.lid_threshold, args.max_nllb_size, run_output_dir)
+        download_nllb(idx1, idx2, cleaner, args.lid_model, args.laser_threshold[i], args.lid_threshold, args.max_nllb_size, run_output_dir)
 
         # Execute and wait pipeline execution
         opus_command = ["opusfilter", config_filepath]
