@@ -1,6 +1,6 @@
 OUTPUT_DIR=${1:-"./backtranslation-ban/output/"}
 TEST_PAIRS=${2:-"en-ban"}
-export HF_TOKEN="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"
+export HF_TOKEN="hf_tokenxyz"
 export HF_DATASETS_CACHE=".cache/huggingface_cache/datasets"
 export TRANSFORMERS_CACHE=".cache/models/"
 # random port between 30000 and 50000

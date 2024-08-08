@@ -301,7 +301,8 @@ class LlamaTokenizerFastKomodo(PreTrainedTokenizerFast):
             bytes_value = bytes.fromhex(hex_seq)
             input_string = input_string.replace(bytes(f"<0x{hex_seq}>",'utf-8'), bytes_value)
 
-        decoded_str = codecs.decode(input_string, 'utf-8')
+        # decoded_str = codecs.decode(input_string, 'utf-8')
+        decoded_str = input_string
 
         return decoded_str
 

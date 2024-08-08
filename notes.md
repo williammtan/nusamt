@@ -9,8 +9,43 @@ Go to https://github.com/settings/keys and grant access to the public key
 
 ```bash
 git remote set-url origin git@github.com:williammtan/ALMA.git
+  git config --global user.email "william@tan.id"
+  git config --global user.name "will tan"
 ```
 
+VLLM TESTING
+``` bash
+python -m vllm.entrypoints.openai.api_server --model {model_path}
+```
+
+
+SETUP FOR mwoffliner
+```bash
+sudo apt install lsb-release curl gpg
+curl -fsSL https://packages.redis.io/gpg | sudo gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
+
+echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/redis.list
+
+sudo add-apt-repository ppa:redislabs/redis
+sudo apt-get update
+sudo apt-get install redis
+
+cd ~
+curl -sL https://deb.nodesource.com/setup_16.x -o /tmp/nodesource_setup.sh
+
+sudo bash /tmp/nodesource_setup.sh
+
+sudo apt install nodejs npm
+
+npm i -g mwoffliner
+
+```
+
+GCLOUD AUTH
+https://cloud.google.com/compute/docs/authentication
+``` bash
+gcloud storage cp {src} {tgt}
+```
 
 MB experiment
 
@@ -18,19 +53,32 @@ MB experiment
 python -c "from preprocess import get_lang_directions; print(','.join(['-'.join(d) for d in get_lang_directions(['ban', 'min'], ['id', 'en'], order_matters=False)]))"
 ```
 
+VLLM Setup
+```python
+
+in /opt/conda/lib/python3.10/site-packages/vllm/transformers_utils/detokenizer.py
+
+    if new_token_id >= 32000:
+        new_text = " " + new_text
+```
+
 1. Preprocess DONE
 
 ```bash
 python preprocess.py --language_pairs ban-id,id-min,ban-en,en-min --cleaner data/cleaner/model/ --output_dir data/mb/ --lid_threshold 0.9 --n_gpus 4
+
+python preprocess.py --language_pairs ban-id,id-min,ban-en,en-min --cleaner data/cleaner/model/ --output_dir data/mb/ --lid_threshold 0.9 --laser_threshold 1.05 --n_gpus 2
+
+python preprocess.py --language_pairs ban-id,ban-en --cleaner data/cleaner/model/ --output_dir data/ban-testing/ --lid_threshold 0.9 --laser_threshold 1.25 1.09 --n_gpus 2 --overwrite_opus
 ```
 
 2. First training WORKING ON
 
 ```bash
-OUTPUT_DIR=${1:-"./data/mb/train/"}
+OUTPUT_DIR=${1:-"./data/mb-final/train/"}
 pairs=${2:-"ban-en,ban-id,en-ban,en-min,id-ban,id-min,min-en,min-id"}
 LORA_RANK=${3:-"16"}
-export HF_TOKEN="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"
+export HF_TOKEN="hf_tokenxyz"
 export CXX=g++-11
 export CC=gcc-11
 export LD=g++-11
@@ -42,7 +90,7 @@ accelerate launch --main_process_port ${port} --config_file configs/deepspeed_tr
      run_llmmt.py \
     --model_name_or_path Yellow-AI-NLP/komodo-7b-base \
     --torch_dtype "bfloat16" \
-    --mmt_data_path  data/mb/clean/ \
+    --mmt_data_path  data/mb-final/clean/ \
     --use_peft \
     --lora_rank ${LORA_RANK} \
     --do_train \
@@ -86,7 +134,7 @@ accelerate launch --main_process_port ${port} --config_file configs/deepspeed_tr
 MODEL_DIR="./data/mb/train/"
 OUTPUT_DIR="./data/mb/eval/"
 TEST_PAIRS="ban-en,ban-id,en-ban,en-min,id-ban,id-min,min-en,min-id"
-export HF_TOKEN="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"
+export HF_TOKEN="hf_tokenxyz"
 # random port between 30000 and 50000
 port=$(( RANDOM % (50000 - 30000 + 1 ) + 30000 ))
 
@@ -185,7 +233,7 @@ def extract_and_split_sentences(file_path):
 ```
 
 ```bash
-python bt-preprocess.py --language_directions "ban-en,ban-id,en-ban,en-min,id-ban,id-min,min-en,min-id" --output_dir "data/bt/input_prediction" --url_json_path configs/wiki_urls.json
+python bt-preprocess.py --language_directions "ban-en,ban-id,en-ban,id-ban" --output_dir "data/bt/examples" --model ./data/ban/train/ --url_json_path configs/wiki_urls.json
 ```
 
 (b) Predict with model
@@ -194,7 +242,7 @@ OUTPUT_DIR="./data/bt/prediction/"
 TEST_PAIRS="ban-en,ban-id,en-ban,en-min,id-ban,id-min,min-en,min-id"
 DATA_DIR="./data/bt/input_prediction"
 MODEL_DIR="./data/train/checkpoint-11664/"
-export HF_TOKEN="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"
+export HF_TOKEN="hf_tokenxyz"
 # random port between 30000 and 50000
 port=$(( RANDOM % (50000 - 30000 + 1 ) + 30000 ))
 
@@ -224,7 +272,7 @@ accelerate launch --main_process_port ${port} --config_file configs/deepspeed_ev
 
 a-c:
 ```bash
-python bt-preprocess.py --language_directions "ban-en,ban-id,en-ban,en-min,id-ban,id-min,min-en,min-id" --model data/mb/model/ --output_dir "data/bt/examples/" --url_json_path configs/wiki_urls.json --max_sentences 100000
+python bt-preprocess.py --language_directions "ban-en,ban-id,en-ban,id-ban" --model data/ban/train-model/ --output_dir "data/bt/examples/" --url_json_path configs/wiki_urls.json --max_sentences 200000
 ```
 
 (d) Train (1 EPOCH!)
@@ -232,7 +280,7 @@ python bt-preprocess.py --language_directions "ban-en,ban-id,en-ban,en-min,id-ba
 OUTPUT_DIR="data/bt/train"
 DATA_DIR="data/bt/examples"
 pairs="ban-en,ban-id,en-ban,en-min,id-ban,id-min,min-en,min-id"
-MODEL_PATH="data/mb/train/checkpoint-11664/"
+MODEL_PATH="data/mb/train/checkpoint-26620/"
 LORA_RANK=${3:-"16"}
 export CXX=g++-11
 export CC=gcc-11
@@ -283,3 +331,68 @@ accelerate launch --main_process_port ${port} --config_file configs/deepspeed_tr
     --ddp_timeout 999999 \
     --report_to none \
 ```
+
+run BT:
+
+```bash
+python merge_peft.py -m yellow-AI-NLP/komodo-7b-base -t yellow-AI-NLP/komodo-7b-base -p data/ban/train/checkpoint-25973/ -o data/ban/train-model/
+```
+
+```bash
+python bt-preprocess.py --language_directions "ban-en,ban-id,en-ban,id-ban" --model data/ban/train-model/ --output_dir "data/bt/examples/" --url_json_path configs/wiki_urls.json --max_sentences 100000 && bash run-bt-train.sh
+```
+
+
+vllm serve function:
+```bash
+python -m vllm.entrypoints.openai.api_server --model data/ban/train-model --served-model-name nusa-7b-ban --tensor-parallel-size 2 --api-key "the_api_key__"
+```
+
+
+the plann:
+
+# REPEAT change the thing to next one and keep doing this
+cp -r data/ban/opus data/ban-align
+
+python preprocess.py --language_pairs "ban-id,ban-en" --cleaner data/cleaner/model/ --output_dir data/ban-align/ --lid_threshold 0.9 --laser_threshold 1.25 1.09 --n_gpus 2 --overwrite_opus
+
+# note the counts
+zcat data/ban-align/opus/ban-en/ban-en.en.filtered.gz | wc -l
+zcat data/ban-align/opus/ban-id/ban-id.id.filtered.gz | wc -l
+zcat data/ban-align/opus/ban-en/ban-en.en.aligned.gz | wc -l
+zcat data/ban-align/opus/ban-id/ban-id.id.aligned.gz | wc -l
+
+# END REPEAT #
+
+## TEMP MOVING ##
+
+# bible verses
+mv data/ban-align/opus data/ban-align/opus-bv
+
+# baliwiki
+mv data/ban-align/opus data/ban-align/opus-bw
+
+# mined
+mv data/ban-align/opus data/ban-align/opus-nl
+
+
+# handwritten - REMOVE THE ALIGNMENTS (but remember to change to .aligned.gz after preprocessing)
+mv data/ban-align/opus data/ban-align/opus-hw
+
+
+# in the end
+mkdir -p data/ban-align/opus/ban-id
+mkdir -p data/ban-align/opus/ban-en
+zcat data/ban-align/opus-nl/ban-en/ban-en.en.aligned.gz data/ban-align/opus-bw/ban-en/ban-en.en.aligned.gz data/ban-align/opus-bv/ban-en/ban-en.en.aligned.gz data/ban-align/opus-hw/ban-en/ban-en.en.aligned.gz | gzip > data/ban-align/opus/ban-en/ban-en.en.aligned.gz
+zcat data/ban-align/opus-nl/ban-id/ban-id.id.aligned.gz data/ban-align/opus-bw/ban-id/ban-id.id.aligned.gz data/ban-align/opus-bv/ban-id/ban-id.id.aligned.gz data/ban-align/opus-hw/ban-id/ban-id.id.aligned.gz | gzip > data/ban-align/opus/ban-id/ban-id.id.aligned.gz
+zcat data/ban-align/opus-nl/ban-en/ban-en.ban.aligned.gz data/ban-align/opus-bw/ban-en/ban-en.ban.aligned.gz data/ban-align/opus-bv/ban-en/ban-en.ban.aligned.gz data/ban-align/opus-hw/ban-en/ban-en.ban.aligned.gz | gzip > data/ban-align/opus/ban-en/ban-en.ban.aligned.gz
+zcat data/ban-align/opus-nl/ban-id/ban-id.ban.aligned.gz data/ban-align/opus-bw/ban-id/ban-id.ban.aligned.gz data/ban-align/opus-bv/ban-id/ban-id.ban.aligned.gz data/ban-align/opus-hw/ban-id/ban-id.ban.aligned.gz | gzip > data/ban-align/opus/ban-id/ban-id.ban.aligned.gz
+
+
+
+python bt-preprocess.py --language_directions "ban-en,ban-id,en-ban,id-ban" --model data/ban-align/train-model/ --output_dir "data/bt-align/examples/" --url_json_path configs/wiki_urls.json --max_sentences 100000
+
+
+MIN
+
+python preprocess.py --language_pairs "id-min,en-min" --cleaner data/cleaner/model/ --output_dir data/min/ --lid_threshold 0.9 --laser_threshold 1.09 1.09 --n_gpus 2 --overwrite_opus

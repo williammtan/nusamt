@@ -6,7 +6,7 @@ DATA_DIR=${3}
 for pair in ${TEST_PAIRS//,/ }; do
     src=$(echo ${pair} | cut -d "-" -f 1)
     tgt=$(echo ${pair} | cut -d "-" -f 2)
-    TOK="13a"
+    TOK="flores200"
 
     tgt_path=${DATA_DIR}/${src}${tgt}/test.${src}-${tgt}.${tgt}
     output_path=${OUTPUT_DIR}/test-${src}-${tgt}

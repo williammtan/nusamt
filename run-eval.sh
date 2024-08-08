@@ -1,5 +1,5 @@
 export HF_DATASETS_CACHE=".cache/huggingface_cache/datasets"
-export HF_TOKEN="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"
+export HF_TOKEN="hf_tokenxyz"
 export TRANSFORMERS_CACHE=".cache/models/"
 
 

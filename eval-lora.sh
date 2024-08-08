@@ -1,6 +1,6 @@
 OUTPUT_DIR=${1:-"./output-eval-ban-flores-bt/"}
 TEST_PAIRS=${2:-"ban-en"}
-export HF_TOKEN="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"
+export HF_TOKEN="hf_tokenxyz"
 export HF_DATASETS_CACHE=".cache/huggingface_cache/datasets"
 export TRANSFORMERS_CACHE=".cache/models/"
 # random port between 30000 and 50000

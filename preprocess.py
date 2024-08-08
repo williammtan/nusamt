@@ -1,4 +1,5 @@
 from collections import defaultdict
+from itertools import combinations
 import subprocess
 import argparse
 import tempfile
@@ -17,6 +18,8 @@ from tqdm import tqdm
 import pandas as pd
 import numpy as np
 import fasttext
+import sqlite3
+from hashlib import sha256
 
 # CONSTANTS
 LANGUAGE_NAMES = ['Balinese', 'Acehnese', 'Banjar', 'Buginese', 'Minangkabau', 'Sundanese', 'Javanese', 'Indonesian', 'English']
@@ -28,6 +31,9 @@ LLAMA3_SYSTEM_PROMPT="Clean the data by identifying and fixing problems in paral
 # ENVIRONMENT SETTINGS
 CACHE_DIR = os.environ.get("CACHE_DIR") or ".cache"
 PREPROCESS_CACHE_DIR = os.path.join(CACHE_DIR, "preprocess")
+
+# GLOBAL OBJECTS
+CACHE_MANAGER = None
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -77,6 +83,60 @@ def temp_extract_blob_from_git(url) -> tempfile.TemporaryDirectory:
     logging.debug(f"Cloned from {url}")
     return tmpdir
 
+def download_minangnlp(overwrite=True):
+    partitions = ["train", "test", "validation"]
+    minangnlp_dir = os.path.join(PREPROCESS_CACHE_DIR, "minangnlp")
+
+    if os.path.isdir(minangnlp_dir):
+        if overwrite:
+            shutil.rmtree(minangnlp_dir)
+        else:
+            logging.info("Skipping downloading NusaX, cache dir found.")
+            return
+    os.makedirs(minangnlp_dir, exist_ok=True)
+
+    ds = load_dataset("SEACrowd/minangnlp_mt")
+    src_sentences = []
+    tgt_sentences = []
+    for p in partitions:
+        for example in ds[p]:
+            src_sentences.append(example['src'].replace('\n', ''))
+            tgt_sentences.append(example['tgt'].replace('\n', ''))
+    src = "id"
+    tgt = "min"
+
+    for lang1, lang2 in get_lang_directions(OPUS_LANGUAGE_IDS, OPUS_LANGUAGE_IDS, order_matters=False):
+        with  gzip.open(os.path.join(minangnlp_dir, f"{lang1}-{lang2}.{lang1}.gz"), "wt", encoding="utf-8") as out1, gzip.open(os.path.join(minangnlp_dir, f"{lang1}-{lang2}.{lang2}.gz"), "wt", encoding="utf-8") as out2:
+            if lang1 == src and lang2 == tgt:
+                out1.write('\n'.join(src_sentences))
+                out2.write('\n'.join(tgt_sentences))
+
+def download_indonesianmnt(overwrite=True):
+    indonesianmnt_dir = os.path.join(PREPROCESS_CACHE_DIR, "indonesianmnt")
+
+    if os.path.isdir(indonesianmnt_dir):
+        if overwrite:
+            shutil.rmtree(indonesianmnt_dir)
+        else:
+            logging.info("Skipping downloading NusaX, cache dir found.")
+            return
+    os.makedirs(indonesianmnt_dir, exist_ok=True)
+
+    df = pd.read_csv('https://huggingface.co/datasets/Exqrch/IndonesianNMT/raw/main/id-min.tsv', sep='\t', header=0)
+    df = df.dropna()
+    src = "id"
+    src_column = "Indonesian"
+    tgt = "min"
+    tgt_column = "Minangkabau"
+
+    for lang1, lang2 in get_lang_directions(OPUS_LANGUAGE_IDS, OPUS_LANGUAGE_IDS, order_matters=False):
+        with gzip.open(os.path.join(indonesianmnt_dir, f"{lang1}-{lang2}.{lang1}.gz"), "wt", encoding="utf-8") as out1, gzip.open(os.path.join(indonesianmnt_dir, f"{lang1}-{lang2}.{lang2}.gz"), "wt", encoding="utf-8") as out2:
+            if lang1 == src and lang2 == tgt:
+                out1.write('\n'.join(df[src_column]))
+                out2.write('\n'.join(tgt_column))
+            
+
+
 def download_nusax(overwrite=True):
     NUSAX_COLUMNS = ["", "id", "ace", "bjn", "en", "", "", "su", "ban", "bug", "jv", "min", ""]
 
@@ -95,12 +155,12 @@ def download_nusax(overwrite=True):
         pd.read_csv(os.path.join(datadir, "train.csv")),
         pd.read_csv(os.path.join(datadir, "valid.csv")),
         pd.read_csv(os.path.join(datadir, "test.csv"))
-    ])
+    ]).dropna()
     logging.info(f"Writing {len(df)} sentences for {len(df.columns)} langauges from NusaX.")
 
     for lang in OPUS_LANGUAGE_IDS:
         if lang in NUSAX_COLUMNS:
-            texts = df[df.columns[NUSAX_COLUMNS.index(lang)]]
+            texts = df[df.columns[NUSAX_COLUMNS.index(lang)]].apply(lambda x: x.replace('\n', ''))
         else:
             texts = []
         with gzip.open(os.path.join(nusax_dir, f"{lang}.gz"), "wt", encoding="utf-8") as out:
@@ -125,18 +185,25 @@ def download_seed(overwrite=True):
     tmpdir = temp_extract_blob_from_git("https://github.com/openlanguagedata/seed")
     datadir = os.path.join(tmpdir.name, "seed")
 
-    for lang in OPUS_LANGUAGE_IDS:
-        nllb_id = NLLB_LANGUAGE_IDS[OPUS_LANGUAGE_IDS.index(lang)]
-        if lang in NLLB_SEED_LANGS:
-            with open(os.path.join(datadir, nllb_id), 'r', encoding="utf-8") as f:
-                data = f.read()
+    data_dict = defaultdict(list)
+
+    for lang1, lang2 in get_lang_directions(OPUS_LANGUAGE_IDS, OPUS_LANGUAGE_IDS, order_matters=False):
+        if lang1 in NLLB_SEED_LANGS and lang2 in NLLB_SEED_LANGS:
+            nllb_id1 = NLLB_LANGUAGE_IDS[OPUS_LANGUAGE_IDS.index(lang1)]
+            nllb_id2 = NLLB_LANGUAGE_IDS[OPUS_LANGUAGE_IDS.index(lang2)]
+            with open(os.path.join(datadir, nllb_id1), 'r', encoding="utf-8") as f1, open(os.path.join(datadir, nllb_id2), 'r', encoding="utf-8") as f2:
+                sents1 = f1.read().split('\n')
+                sents2 = f2.read().split('\n')
+                data_dict[lang1 + "-" + lang2] = list(zip(sents1, sents2))
         else:
-            data = ""
-        
-        logging.debug("Writing {} sentences for {}".format(len(data.split('\n'))-1, lang))
-        
-        with gzip.open(os.path.join(seed_dir, f"{lang}.gz"), "wt", encoding="utf-8") as out:
-            out.write(data)
+            data_dict[lang1 + "-" + lang2] = []
+    
+    for direction, sentences in data_dict.items():
+        lang1, lang2 = direction.split('-')
+        with gzip.open(os.path.join(seed_dir, f"{lang1}-{lang2}.{lang1}.gz"), "wt", encoding="utf-8") as out1, gzip.open(os.path.join(seed_dir, f"{lang1}-{lang2}.{lang2}.gz"), "wt", encoding="utf-8") as out2:
+            for sent1, sent2 in sentences:
+                out1.write(sent1+"\n")
+                out2.write(sent2+"\n")
 
     tmpdir.cleanup()
     return seed_dir
@@ -207,6 +274,8 @@ def write_template(idx1, idx2, template_yaml_path, output_dir, configs_dir): # a
     template = replace_multiple(template, {
         "{{source}}": OPUS_LANGUAGE_IDS[idx1],
         "{{target}}": OPUS_LANGUAGE_IDS[idx2],
+        "{{source_fullname}}": LANGUAGE_NAMES[idx1],
+        "{{target_fullname}}": LANGUAGE_NAMES[idx2],
         "{{nllb_source}}": NLLB_LANGUAGE_IDS[idx1],
         "{{nllb_target}}": NLLB_LANGUAGE_IDS[idx2],
         "{{output_directory}}": output_dir,
@@ -250,12 +319,86 @@ def load_nllb_dataset_allenai(source_id: str, target_id: str):
     
     return nllb_dataset
 
+
+class SqliteCacheManager:
+    def __init__(self, database_path=os.path.join(PREPROCESS_CACHE_DIR, "cache.db")):
+    
+        # initialize connection to db
+        self.con = sqlite3.connect(database_path)
+        self.con.row_factory = sqlite3.Row
+        self.cur = self.con.cursor()
+
+
+class CacheTable:
+    def __init__(self, name: str, columns, hash_columns):
+        """
+        Required functionality:
+            - Create table if not exists (DONE)
+            - Get cache if exists
+            - Batch write new cache
+        """
+        self.name = name
+        self.columns = {"hash": "TEXT PRIMARY KEY"}
+        self.columns.update(columns)
+        self.hash_columns = hash_columns # list of columns to use as hash for
+
+
+        # initialize table
+        self.create_table()
+
+    def create_table(self):
+        """Initializes the cache table if it doesn't exist"""
+
+        column_string = ",\n".join([
+                col_name + " " + descriptor
+            for col_name, descriptor in self.columns.items()
+        ])
+        sql_create_table = f"""CREATE TABLE IF NOT EXISTS {self.name} ({column_string});"""
+        CACHE_MANAGER.cur.execute(sql_create_table)
+        CACHE_MANAGER.con.commit()
+    
+    def hash_data(self, data):
+        hashed_data_str = json.dumps({
+            col: data[col]
+            for col in self.hash_columns
+        }, sort_keys=True)
+        return sha256(hashed_data_str.encode('utf-8')).hexdigest()
+    
+    def get(self, data):
+        """Find and returns the given row by hash if it exists"""
+        data_hash = self.hash_data(data)
+        res = CACHE_MANAGER.cur.execute(f"SELECT * FROM {self.name} WHERE hash = \"{data_hash}\"")
+        return res.fetchone()
+
+    def batch_update(self, datas):
+        """Adds a multiple new rows"""
+        data_lists = []
+        for data in datas:
+            d_list = [self.hash_data(data)]
+            for col in list(self.columns.keys())[1:]:
+                d_list.append(data[col])
+            data_lists.append(d_list)
+        
+        sql_insert = f"INSERT OR IGNORE INTO {self.name}({', '.join(self.columns)}) VALUES({', '.join(['?' for _ in self.columns.keys()])})"
+        CACHE_MANAGER.cur.executemany(sql_insert, data_lists)
+        CACHE_MANAGER.con.commit()
+    
+
 class Cleaner:
     def __init__(self, model_path, system_prompt=LLAMA3_SYSTEM_PROMPT, temperature=0, n_gpus=4):
         self.model = LLM(model=model_path, tensor_parallel_size=n_gpus)
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
         self.system_prompt = system_prompt
         self.sampling_params = SamplingParams(temperature=temperature, max_tokens=1024)
+
+        self.cache_table = CacheTable("cleaner", {
+            "source_lang": "TEXT CHECK(length(source_lang) <= 8)",
+            "target_lang": "TEXT CHECK(length(target_lang) <= 8)",
+            "source_sentence": "TEXT",
+            "target_sentence" : "TEXT",
+            "cleaned_source_sentence": "TEXT",
+            "cleaned_target_sentence": "TEXT"
+        }, ["source_lang", "target_lang", "source_sentence", "target_sentence"])
     
     def _format_prompt(self, translation, lang1, lang2):
         lang1_name = LANGUAGE_NAMES[NLLB_LANGUAGE_IDS.index(lang1)]
@@ -300,11 +443,27 @@ class Cleaner:
 
         formated_prompts = []
         language_pairs = []
+        cleaned_translations = [None] * len(translations)
+        uncached_indices = []
 
-        for translation in translations:
+        for i, translation in enumerate(translations):
             lang1, lang2 = translation.keys()
-            formated_prompts.append(self._format_prompt(translation, lang1, lang2))
-            language_pairs.append((lang1, lang2))
+            row = self.cache_table.get({
+                "source_lang": lang1,
+                "target_lang": lang2,
+                "source_sentence": translation[lang1],
+                "target_sentence": translation[lang2]
+            })
+            if row:
+                # cached entry exists
+                cleaned_translations[i] = {
+                    lang1: row["cleaned_source_sentence"],
+                    lang2: row["cleaned_target_sentence"]
+                }
+            else:
+                uncached_indices.append(i)
+                formated_prompts.append(self._format_prompt(translation, lang1, lang2))
+                language_pairs.append((lang1, lang2))
         
         results = self.model.generate(formated_prompts, self.sampling_params)
         cleaned_responses = [
@@ -313,17 +472,28 @@ class Cleaner:
         ]
         
         # Parse the results and convert back to translations
-        cleaned_translations = []
-        for i in range(len(translations)):
+        new_cleaned_translations = []
+        for i,idx in enumerate(uncached_indices):
             t = self._parse_response(
                     response=cleaned_responses[i], 
                     lang1=language_pairs[i][0],
                     lang2=language_pairs[i][1]
                     )
-            if t[list(t.keys())[0]] == "": print(formated_prompts[i])
-            cleaned_translations.append(
-                t
-            )
+            if t[lang1] == "" and t[lang2] == "":
+                t = translations[i]
+            # t[lang1+"_ori"] = translations[i][lang1]
+            # t[lang2+"_ori"] = translations[i][lang2]
+            new_cleaned_translations.append({
+                "source_lang": language_pairs[i][0],
+                "target_lang": language_pairs[i][1],
+                "source_sentence": translations[i][lang1],
+                "target_sentence": translations[i][lang2],
+                "cleaned_source_sentence": t[lang1],
+                "cleaned_target_sentence": t[lang2]
+            })
+            cleaned_translations[idx] = t
+        
+        self.cache_table.batch_update(new_cleaned_translations)
         
         return cleaned_translations
 
@@ -331,13 +501,20 @@ def download_nllb(idx1: int, idx2: int, cleaner: Cleaner, lid_model: str, laser_
     # Download from allenai/nllb huggingface dataset
     dataset = load_nllb_dataset_allenai(NLLB_LANGUAGE_IDS[idx1], NLLB_LANGUAGE_IDS[idx2])
 
+    # Initial filter by LASER score
+    cleaned_dataset = []
+    for example in dataset:
+        if example["laser_score"] > laser_score_threshold:
+            if "alkitab.mobi" not in example["source_sentence_url"] and "alkitab.mobi" not in example["target_sentence_url"]:
+                cleaned_dataset.append(example)
+
     # Load LID model and run predictions
     model_path = hf_hub_download(repo_id=lid_model, filename="model.bin")
     model = fasttext.load_model(model_path)
 
     # Collect texts for LID batch prediction
-    source_texts = [example["translation"][NLLB_LANGUAGE_IDS[idx1]] for example in dataset]
-    target_texts = [example["translation"][NLLB_LANGUAGE_IDS[idx2]] for example in dataset]
+    source_texts = [example["translation"][NLLB_LANGUAGE_IDS[idx1]].lower().replace("ring", "") for example in cleaned_dataset] # TODO: make this more general
+    target_texts = [example["translation"][NLLB_LANGUAGE_IDS[idx2]].lower().replace("ring", "") for example in cleaned_dataset]
 
     # Function to check if desired language is in top predictions
     def is_desired_language(predictions, desired_lang):
@@ -362,29 +539,31 @@ def download_nllb(idx1: int, idx2: int, cleaner: Cleaner, lid_model: str, laser_
     source_lid_scores = batch_predict(source_texts, NLLB_LANGUAGE_IDS[idx1], 1000)
     target_lid_scores = batch_predict(target_texts, NLLB_LANGUAGE_IDS[idx2], 1000)
 
-    # Filter by laser score and lid scores
+    # Filter by the lid scores
     translations = []
     laser_scores = []
-    for i, example in enumerate(dataset):
-        if example["laser_score"] >= laser_score_threshold and source_lid_scores[i] > lid_score_threshold and target_lid_scores[i] > lid_score_threshold:
+    for i, example in enumerate(cleaned_dataset):
+        if source_lid_scores[i] > lid_score_threshold and target_lid_scores[i] > lid_score_threshold:
             translations.append(example["translation"])
             laser_scores.append(example["laser_score"])
 
     sorted_indices = np.argsort(laser_scores)
     translations = np.array(translations)[sorted_indices]
-    translations = translations[:max_size]
-    logging.info(f"Filtering completed. {len(translations)}/{len(dataset)} translations passed the thresholds.")
+    translations = translations[-max_size:]
+    logging.info(f"Filtering completed. {len(translations)}/{len(cleaned_dataset)} translations passed the thresholds.")
 
     # Clean using the model
-    cleaned_translation = cleaner.predict_batch(translations)
+    # cleaned_translation = cleaner.predict_batch(translations)
+    cleaned_translation = translations
 
     # Save to output_dir
     with gzip.open(os.path.join(output_dir, f"{OPUS_LANGUAGE_IDS[idx1]}-{OPUS_LANGUAGE_IDS[idx2]}.nllbsub.{OPUS_LANGUAGE_IDS[idx1]}.gz"), 'wt', encoding="utf-8") as src_out:
-        src_out.write('\n'.join([t[NLLB_LANGUAGE_IDS[idx1]] for t in cleaned_translation]))
+        src_out.write('\n'.join([t[NLLB_LANGUAGE_IDS[idx1]].replace('\n', '') for t in cleaned_translation]))
     with gzip.open(os.path.join(output_dir, f"{OPUS_LANGUAGE_IDS[idx1]}-{OPUS_LANGUAGE_IDS[idx2]}.nllbsub.{OPUS_LANGUAGE_IDS[idx2]}.gz"), 'wt', encoding="utf-8") as tgt_out:
-        tgt_out.write('\n'.join([t[NLLB_LANGUAGE_IDS[idx2]] for t in cleaned_translation]))
+        tgt_out.write('\n'.join([t[NLLB_LANGUAGE_IDS[idx2]].replace('\n', '') for t in cleaned_translation]))
 
 def process_filtered_files(idx1, idx2, output_dir, clean_output_dir):
+    counts_dict = {}
     for (source, target) in [(OPUS_LANGUAGE_IDS[idx1], OPUS_LANGUAGE_IDS[idx2]), (OPUS_LANGUAGE_IDS[idx2], OPUS_LANGUAGE_IDS[idx1])]:
         direction_output_dir = os.path.join(clean_output_dir, f"{source}{target}")
         os.makedirs(direction_output_dir, exist_ok=True)
@@ -406,20 +585,28 @@ def process_filtered_files(idx1, idx2, output_dir, clean_output_dir):
 
             with open(os.path.join(direction_output_dir, f"{subset}.{source}-{target}.json"), 'w', encoding="utf-8") as j:
                 json.dump(bitext_list, j)
+        
+        counts_dict[source+"-"+target] = len(bitext_list)
     
-    return direction_output_dir
+    return counts_dict
 
 def main(args):
+    global CACHE_MANAGER
+    CACHE_MANAGER = SqliteCacheManager()
+
     download_nusax(overwrite=args.overwrite_cache)
     download_seed(overwrite=args.overwrite_cache)
     download_nusa_writes(overwrite=args.overwrite_cache)
+    download_minangnlp(overwrite=args.overwrite_cache)
+    download_indonesianmnt(overwrite=args.overwrite_cache)
 
-    cleaner = Cleaner(args.cleaner, n_gpus=args.n_gpus)
+    # cleaner = Cleaner(args.cleaner, n_gpus=args.n_gpus)
+    cleaner = None
     opus_dir = os.path.join(args.output_dir, "opus")
     clean_output_dir = os.path.join(args.output_dir, "clean")
     os.makedirs(opus_dir, exist_ok=True)
 
-    for lang1, lang2 in args.language_pairs:
+    for i, (lang1, lang2) in enumerate(args.language_pairs):
         idx1 = OPUS_LANGUAGE_IDS.index(lang1)
         idx2 = OPUS_LANGUAGE_IDS.index(lang2)
 
@@ -429,7 +616,7 @@ def main(args):
         config_filepath = write_template(idx1, idx2, args.template_yaml, run_output_dir, args.configs_dir)
         create_alignment_files(idx1, idx2, run_output_dir)
 
-        download_nllb(idx1, idx2, cleaner, args.lid_model, args.laser_threshold, args.lid_threshold, args.max_nllb_size, run_output_dir)
+        # download_nllb(idx1, idx2, cleaner, args.lid_model, args.laser_threshold[i], args.lid_threshold, args.max_nllb_size, run_output_dir)
 
         # Execute and wait pipeline execution
         opus_command = ["opusfilter", config_filepath]
@@ -437,7 +624,8 @@ def main(args):
             opus_command.append("--overwrite")
         subprocess.run(opus_command, env=os.environ.update({"PYTHONPATH": os.getcwd()}), check=True)
         
-        process_filtered_files(idx1, idx2, run_output_dir, clean_output_dir)
+        counts_dict_new = process_filtered_files(idx1, idx2, run_output_dir, clean_output_dir)
+        print(counts_dict_new)
 
 
 
@@ -463,6 +651,13 @@ if __name__ == "__main__":
         required=True,
         help="Output directory"
     )
+    parser.add_argument(
+        "--laser_threshold",
+        type=float,
+        nargs="+",
+        # default=1.07,
+        help="Laser score threshold"
+    )
     
 
     # Not required args
@@ -477,12 +672,6 @@ if __name__ == "__main__":
         type=str,
         default="cis-lmu/glotlid",
         help="LID model ID in the Huggingface Hub"
-    )
-    parser.add_argument(
-        "--laser_threshold",
-        type=float,
-        default=1.07,
-        help="Laser score threshold"
     )
     parser.add_argument(
         "--lid_threshold",

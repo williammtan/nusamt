@@ -1,0 +1,274 @@
+common:
+  output_directory: {{output_directory}} # Must be overwritten
+  constants: # Must be overwritten
+    source: {{source}}
+    target: {{target}}
+    nllb_source: {{nllb_source}}
+    nllb_target: {{nllb_target}}
+    cache_dir: {{cache_dir}}
+
+steps:
+  # 1. Read data
+
+  # A) NLLB
+  # - type: opus_read
+  #   parameters:
+  #     corpus_name: NLLB
+  #     source_language: !varstr "{source}"
+  #     target_language: !varstr "{target}"
+  #     preprocessing: raw
+  #     src_output: !varstr "{source}-{target}.nllb.{source}.gz"
+  #     tgt_output: !varstr "{source}-{target}.nllb.{target}.gz"
+  #     suppress_prompts: true
+  
+  # - type: subset
+  #   parameters:
+  #     inputs:
+  #       - !varstr "{source}-{target}.nllb.{source}.gz"
+  #       - !varstr "{source}-{target}.nllb.{target}.gz"
+  #     outputs:
+  #       - !varstr "{source}-{target}.nllbsub.{source}.gz"
+  #       - !varstr "{source}-{target}.nllbsub.{target}.gz"
+  #     size: 1000000
+  
+  # B) WikiMatrix
+  - type: opus_read
+    parameters:
+      corpus_name: WikiMatrix
+      source_language: !varstr "{source}"
+      target_language: !varstr "{target}"
+      preprocessing: raw
+      src_output: !varstr "{source}-{target}.wikimatrix.{source}.gz"
+      tgt_output: !varstr "{source}-{target}.wikimatrix.{target}.gz"
+      suppress_prompts: true
+      release: v1
+
+
+  # B) wikimedia
+  - type: opus_read
+    parameters:
+      corpus_name: wikimedia
+      source_language: !varstr "{source}"
+      target_language: !varstr "{target}"
+      preprocessing: raw
+      src_output: !varstr "{source}-{target}.wikimedia.{source}.gz"
+      tgt_output: !varstr "{source}-{target}.wikimedia.{target}.gz"
+      suppress_prompts: true
+      release: latest
+
+  # Concatenate src files
+  - type: concatenate
+    parameters:
+      inputs:
+        - !varstr "{source}-{target}.nllbsub.{source}.gz"
+        - !varstr "{source}-{target}.wikimatrix.{source}.gz"
+        - !varstr "{source}-{target}.wikimedia.{source}.gz"
+      output: !varstr "{source}-{target}.{source}.raw.gz"
+
+  # Concatentate target files
+  - type: concatenate
+    parameters:
+      inputs:
+        - !varstr "{source}-{target}.nllbsub.{target}.gz"
+        - !varstr "{source}-{target}.wikimatrix.{target}.gz"
+        - !varstr "{source}-{target}.wikimedia.{target}.gz"
+      output: !varstr "{source}-{target}.{target}.raw.gz"
+  
+
+  # Read other data (wikimedia, WikiMatrix)
+
+  # 2. Preprocessing/normalization (WhiteSpaceNormalizer, RegexSub)
+
+
+  # 3. Filtering (length ratio, length max, weird characters)
+  
+  - type: concatenate
+    parameters:
+      inputs:
+        - !varstr "{source}-{target}.{source}.raw.gz"
+        # - !varstr "{cache_dir}/nusax/{source}.gz"
+        # - !varstr "{cache_dir}/seed/{source}-{target}.{source}.gz"
+        # - !varstr "{cache_dir}/nusa_writes/{source}-{target}.{source}.gz"
+        # - !varstr "{cache_dir}/baliwiki/{source}-{target}.{source}.gz"
+        # - !varstr "{cache_dir}/bible_verses/{source}-{target}/{source}-{target}.{source}.gz"
+      output: !varstr "{source}-{target}.{source}.combined.gz"
+    
+  - type: concatenate
+    parameters:
+      inputs:
+        - !varstr "{source}-{target}.{target}.raw.gz"
+        # - !varstr "{cache_dir}/nusax/{target}.gz"
+        # - !varstr "{cache_dir}/seed/{source}-{target}.{target}.gz"
+        # - !varstr "{cache_dir}/nusa_writes/{source}-{target}.{target}.gz"
+        # - !varstr "{cache_dir}/baliwiki/{source}-{target}.{target}.gz"
+        # - !varstr "{cache_dir}/bible_verses/{source}-{target}/{source}-{target}.{target}.gz"
+      output: !varstr "{source}-{target}.{target}.combined.gz"
+  
+  - type: preprocess
+    parameters:
+      inputs:
+        - !varstr "{source}-{target}.{source}.combined.gz"
+        - !varstr "{source}-{target}.{target}.combined.gz"
+      outputs:
+        - !varstr "{source}-{target}.{source}.preprocessed.gz"
+        - !varstr "{source}-{target}.{target}.preprocessed.gz"
+      preprocessors:
+        - RegExpSub:
+            patterns: 
+              - ['[‘’]', "'", 0, []]
+              - ['[“”]', "\"", 0, []]
+              - ['Bali:', "", 0, []]
+              - ['Balinese:', "", 0, []]
+              - ['Minangkabau:', "", 0, []]
+              - ['\(\d+:\d+\)', "", 0, []]
+        - WhitespaceNormalizer: {}
+
+
+  - type: remove_duplicates
+    parameters:
+      inputs:
+        - !varstr "{source}-{target}.{source}.preprocessed.gz"
+        - !varstr "{source}-{target}.{target}.preprocessed.gz"
+      outputs:
+        - !varstr "{source}-{target}.{source}.preprocessed-dup.gz"
+        - !varstr "{source}-{target}.{target}.preprocessed-dup.gz"
+  
+  - type: filter
+    parameters:
+      inputs:
+        - !varstr "{source}-{target}.{source}.preprocessed-dup.gz"
+        - !varstr "{source}-{target}.{target}.preprocessed-dup.gz"
+      outputs:
+        - !varstr "{source}-{target}.{source}.filtered.gz"
+        - !varstr "{source}-{target}.{target}.filtered.gz"
+      filters:
+        # - TerminalPunctuationFilter:
+        #     threshold: -2
+        - LengthFilter:
+            min_length: 3
+            max_length: 100
+            unit: word
+        - LengthRatioFilter:
+            threshold: 2
+            unit: word
+        - LongWordFilter:
+            threshold: 20
+        - RingFilter:
+            threshold: 0.33
+          module: filters
+        - IdenticalStringsFilter: {}
+          module: filters
+        - PunctuationFilter:
+            threshold: 0.2
+          module: filters
+        - NumberFilter:
+            threshold: 0.2
+          module: filters
+        - LaserEmbeddingFilter:
+            languages:
+              - !varstr "{nllb_source}"
+              - !varstr "{nllb_target}"
+            threshold: 0.7
+          module: filters
+  
+  - type: subset
+    parameters:
+      size: 100
+      inputs:
+        - !varstr "{source}-{target}.{source}.filtered.gz"
+        - !varstr "{source}-{target}.{target}.filtered.gz"
+      outputs:
+        - !varstr "{source}-{target}.{source}.subset.gz"
+        - !varstr "{source}-{target}.{target}.subset.gz"
+  
+  - type: preprocess
+    parameters:
+      inputs:
+        - !varstr "{source}-{target}.{source}.subset.gz"
+        - !varstr "{source}-{target}.{target}.subset.gz"
+      outputs:
+        - !varstr "{source}-{target}.{source}.aligned.gz"
+        - !varstr "{source}-{target}.{target}.aligned.gz"
+      preprocessors:
+        - AlignGPTCleaner:
+            source_language: !varstr "{source}"
+            target_language: !varstr "{target}"
+          module: filters
+
+  - type: split
+    parameters:
+      divisor: 2
+      seed: 0
+      inputs:
+        - !varstr "{source}-{target}.{source}.filtered.gz"
+        - !varstr "{source}-{target}.{target}.filtered.gz"
+      outputs:
+        - !varstr "{source}-{target}.{source}.final.gz"
+        - !varstr "{source}-{target}.{target}.final.gz"
+      outputs_2:
+        - !varstr "{target}-{source}.{source}.final.gz"
+        - !varstr "{target}-{source}.{target}.final.gz"
+    
+    # SPLIT source-target into train test validation
+
+  - type: split
+    parameters: 
+      divisor: 10
+      threshold: 9
+      seed: 1
+      inputs: 
+        - !varstr "{source}-{target}.{source}.final.gz"
+        - !varstr "{source}-{target}.{target}.final.gz"
+      outputs:
+        - !varstr "{source}-{target}.{source}.train.gz"
+        - !varstr "{source}-{target}.{target}.train.gz"
+      outputs_2:
+        - !varstr "{source}-{target}.{source}.temp.gz"
+        - !varstr "{source}-{target}.{target}.temp.gz"
+  
+  - type: split # split source-target into train test validation
+    parameters: 
+      divisor: 2
+      seed: 2
+      inputs: 
+        - !varstr "{source}-{target}.{source}.temp.gz"
+        - !varstr "{source}-{target}.{target}.temp.gz"
+      outputs:
+        - !varstr "{source}-{target}.{source}.test.gz"
+        - !varstr "{source}-{target}.{target}.test.gz"
+      outputs_2:
+        - !varstr "{source}-{target}.{source}.valid.gz"
+        - !varstr "{source}-{target}.{target}.valid.gz"
+  
+  # SPLIT target-source into train test validation
+
+  - type: split
+    parameters: 
+      divisor: 10
+      threshold: 9
+      seed: 3
+      inputs: 
+        - !varstr "{target}-{source}.{source}.final.gz"
+        - !varstr "{target}-{source}.{target}.final.gz"
+      outputs:
+        - !varstr "{target}-{source}.{source}.train.gz"
+        - !varstr "{target}-{source}.{target}.train.gz"
+      outputs_2:
+        - !varstr "{target}-{source}.{source}.temp.gz"
+        - !varstr "{target}-{source}.{target}.temp.gz"
+  
+  - type: split # split source-target into train test validation
+    parameters: 
+      divisor: 2
+      seed: 4
+      inputs: 
+        - !varstr "{target}-{source}.{source}.temp.gz"
+        - !varstr "{target}-{source}.{target}.temp.gz"
+      outputs:
+        - !varstr "{target}-{source}.{source}.test.gz"
+        - !varstr "{target}-{source}.{target}.test.gz"
+      outputs_2:
+        - !varstr "{target}-{source}.{source}.valid.gz"
+        - !varstr "{target}-{source}.{target}.valid.gz"
+      
+      

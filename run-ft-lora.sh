@@ -1,7 +1,7 @@
 OUTPUT_DIR=${1:-"./alma-7b-ban-e4"}
 pairs=${2:-"ban-en,en-ban"}
 LORA_RANK=${3:-"16"}
-export HF_TOKEN="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"
+export HF_TOKEN="hf_tokenxyz"
 export HF_DATASETS_CACHE=".cache/huggingface_cache/datasets"
 export TRANSFORMERS_CACHE=".cache/models/"
 export CXX=g++-11

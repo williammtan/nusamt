@@ -1,7 +1,7 @@
 OUTPUT_DIR=${1:-"./alma-7b-parallel-ft"}
 pairs=${2:-"bug-en,bjn-en,ace-en,ban-en,en-bug,en-bjn,en-ace,en-ban,bjn-en,ace-en,ban-en,en-bug,en-bjn,en-ace,en-ban"} # ,bjn-en,ace-en,ban-en,en-bug,en-bjn,en-ace,en-ban
 export HF_DATASETS_CACHE=".cache/huggingface_cache/datasets"
-export HF_TOKEN="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"
+export HF_TOKEN="hf_tokenxyz"
 export TRANSFORMERS_CACHE=".cache/models/"
 
 # random port between 30000 and 50000
