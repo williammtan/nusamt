@@ -18,7 +18,7 @@ accelerate==0.27.2
 jsonlines==1.2.0
 git+https://github.com/huggingface/trl.git@dc6a934269a6d42cceb1565829030fc73e00e8cf
 unbabel-comet==2.1.0
-opusfilter==2.2.1
+opusfilter
 scikit-learn==1.3.0
 torch==2.1.0+cu118
 torchvision==0.16.0+cu118
