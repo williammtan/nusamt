@@ -21,12 +21,6 @@ PROMPT_FORMAT = "Translate this from {lang1} to {lang2}:\n{lang1}: {sentence}\n{
 LANGUAGE_NAMES = {'ban': 'Balinese', 'ace': 'Acehnese', 'bjn': 'Banjar', 'bug': 'Buginese', 'min': 'Minangkabau', 'su': 'Sundanese', 'jv': 'Javanese', 'id': 'Indonesian', 'en': 'English'}
 NLLB_LANGUAGE_NAMES = {'ban': 'ban_Latn', 'ace': 'ace_Latn', 'bjn': 'bjn_Latn', 'bug': 'bug_Latn', 'min': 'min_Latn', 'su': 'sun_Latn', 'jv': 'jav_Latn', 'id': 'ind_Latn', 'en': 'eng_Latn'}
 
-def replace_multiple(string, dic):
-    for k,v in dic.items():
-        string = string.replace(k, v)
-    return string
-
-
 class Translator:
     def __init__(self, model_path, temperature=0, n_gpus=2):
         self.model = LLM(model=model_path, tensor_parallel_size=n_gpus)
@@ -177,59 +171,13 @@ def train_valid_test_split(sentences, valid_size, test_size):
     valid, test = train_test_split(test_valid, test_size=(test_size)/(valid_size+test_size))
     return train, valid, test
 
-def write_template(src, tgt, template_yaml_path, output_dir, configs_dir): # alr /opus and dir created
-    if not os.path.isdir(configs_dir):
-        os.makedirs(configs_dir, exist_ok=True)
 
-    with open(template_yaml_path, 'r', encoding='utf-8') as f:
-        template = f.read()
-    
-    template = replace_multiple(template, {
-        "{{source}}": src,
-        "{{target}}": tgt,
-        "{{source_fullname}}": LANGUAGE_NAMES[src],
-        "{{target_fullname}}": LANGUAGE_NAMES[tgt],
-        "{{nllb_source}}": NLLB_LANGUAGE_NAMES[src],
-        "{{nllb_target}}": NLLB_LANGUAGE_NAMES[tgt],
-        "{{output_directory}}": output_dir,
-        "{{cache_dir}}": os.path.abspath(PREPROCESS_CACHE_DIR)
-    })
-
-    config_filepath = os.path.join(configs_dir, f"{src}-{tgt}_pipeline_bt.yaml")
-    with open(config_filepath, 'w', encoding='utf-8') as f:
-        f.write(template)
-    
-    return config_filepath
-
-def process_filtered_files(src, tgt, output_dir, clean_output_dir):
-    for (source, target) in [(src, tgt), (src, tgt)]:
-        direction_output_dir = os.path.join(clean_output_dir, f"{source}{target}")
-        os.makedirs(direction_output_dir, exist_ok=True)
-
-        for subset in ["train", "test", "valid"]:
-            bitext_list = []
-
-            with gzip.open(os.path.join(output_dir, f"{source}-{target}.{source}.{subset}.gz"), 'rt', encoding="utf-8") as src_file, gzip.open(os.path.join(output_dir, f"{source}-{target}.{target}.{subset}.gz"), 'rt', encoding="utf-8") as tgt_file:
-                with open(os.path.join(direction_output_dir, f"{subset}.{source}-{target}.{source}"), 'w', encoding="utf-8") as src_outfile, open(os.path.join(direction_output_dir, f"{subset}.{source}-{target}.{target}"), 'w', encoding="utf-8") as tgt_outfile:
-                    for src_text, tgt_text in zip(src_file, tgt_file):
-                        bitext_list.append({
-                            "translation": {
-                                source: src_text.strip("\n"),
-                                target: tgt_text.strip("\n")
-                            }
-                        })
-                        src_outfile.write(src_text)
-                        tgt_outfile.write(tgt_text)
-
-            with open(os.path.join(direction_output_dir, f"{subset}.{source}-{target}.json"), 'w', encoding="utf-8") as j:
-                json.dump(bitext_list, j)
-
-def main(language_directions, output_dir, model_path, url_json_path, max_sentences, min_words, template_yaml, configs_dir):
+def main(language_directions, output_dir, model_path, url_json_path, max_sentences, min_words):
     model = Translator(model_path)
     directions_dict = preprocess(language_directions, url_json_path, max_sentences, min_words)
 
+
     opus_dir = os.path.join(output_dir, "opus")
-    clean_output_dir = os.path.join(output_dir, "clean")
 
     for direction, sentences in directions_dict.items():
         lang1, lang2 = direction.split('-')
@@ -242,19 +190,11 @@ def main(language_directions, output_dir, model_path, url_json_path, max_sentenc
 
         run_output_dir = os.path.join(opus_dir, f"{lang1}-{lang2}")
         os.makedirs(run_output_dir, exist_ok=True)
-        with gzip.open(os.path.join(run_output_dir, f"{lang1}-{lang2}.{lang1}.gz"), 'wt') as f:
-            f.write('\n'.join([s.encode('utf-8') for s in translated_sentences]))
+        with gzip.open(os.path.join(run_output_dir, f"{lang1}-{lang2}.{lang1}.gz"), 'wt', encoding='utf-8') as f:
+            f.write('\n'.join(translated_sentences))
         
-        with gzip.open(os.path.join(run_output_dir, f"{lang1}-{lang2}.{lang2}.gz"), 'wt') as f:
+        with gzip.open(os.path.join(run_output_dir, f"{lang1}-{lang2}.{lang2}.gz"), 'wt', encoding='utf-8') as f:
             f.write('\n'.join(sentences))
-
-        config_filepath = write_template(lang1, lang2, template_yaml, run_output_dir, configs_dir)
-        opus_command = ["opusfilter", config_filepath]
-        if args.overwrite_opus:
-            opus_command.append("--overwrite")
-        subprocess.run(opus_command, env=os.environ.update({"PYTHONPATH": os.getcwd()}), check=True)
-
-        process_filtered_files(lang1, lang2, run_output_dir, clean_output_dir)
 
 
         # train, valid, test = train_valid_test_split([
@@ -276,9 +216,7 @@ if __name__ == "__main__":
     parser.add_argument('--url_json_path', required=True, help="Path to the JSON file containing the URLs for downloading the wikis")
     parser.add_argument('--max_sentences', type=int, default=100000, help="Maximum number of sentences per direction")
     parser.add_argument('--min_words', type=int, default=5, help="Minimum number of words per sentence")
-    parser.add_argument("--template_yaml", type=str, default="configs/pipeline_bt_template.yaml", help="Path to the pipeline template YAML file")
-    parser.add_argument("--configs_dir", type=str, default="configs/auto_pipeline/", help="Directory to store generated config files")
 
     args = parser.parse_args()
 
-    main(args.language_directions, args.output_dir, args.model, args.url_json_path, args.max_sentences, args.min_words, args.template_yaml, args.configs_dir)
+    main(args.language_directions, args.output_dir, args.model, args.url_json_path, args.max_sentences, args.min_words)

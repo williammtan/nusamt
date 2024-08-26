@@ -1,8 +1,8 @@
 MODEL_PATH="data/ban/train/"
 pairs="ban-en,ban-id,en-ban,id-ban"
-DATA_DIR="data/bt/examples"
-OUTPUT_DIR="data/bt/train"
-OUTPUT_EVAL_DIR="./data/bt/eval/"
+DATA_DIR="data/bt-align/examples"
+OUTPUT_DIR="data/bt-align/train"
+OUTPUT_EVAL_DIR="./data/bt-align/eval/"
 LORA_RANK=${3:-"16"}
 export CXX=g++-11
 export CC=gcc-11
@@ -53,7 +53,7 @@ accelerate launch --main_process_port ${port} --config_file configs/deepspeed_tr
     --ddp_timeout 999999 \
     --report_to wandb \
 
-bash flores-eval.sh ./data/bt/
+bash flores-eval.sh ./data/bt-align/
 
 # accelerate launch --main_process_port ${port} --config_file configs/deepspeed_eval_config.yaml \
 #     run_llmmt.py \

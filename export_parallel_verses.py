@@ -119,4 +119,4 @@ if __name__ == '__main__':
     process_parallel_sentences(args.csv_file, args.language_pairs, args.lang_map, args.output_dir)
 
 
-lang_map = {"ban": ["bali"],"id": ["ayt","tb","tl","milt","sb2010","ks2011","kskk","vmd","tsi","bis","tmv","fayh","ende","sbdr","ldkdr","avb"],"en": ["net","nasb","hcsb","leb","niv","esv","nrsv","reb","nkjv","av","amp","nlt","gnb","erv","bbe","msg","cev","cevuk","gwv"]}
+lang_map = {"ban": ["bali"],"id": ["ayt","tb","tl","milt","sb2010","ks2011","kskk","vmd","tsi","bis","tmv","fayh","ende","sbdr","ldkdr","avb"],"en": ["net","nasb","hcsb","leb","niv","esv","nrsv","reb","nkjv","av","amp","nlt","gnb","erv","bbe","msg","cev","cevuk","gwv"], "min": ["minang"]}

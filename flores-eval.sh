@@ -3,8 +3,9 @@ pairs=${2:-"ban-en,ban-id,en-ban,id-ban"}
 LORA_RANK=${3:-"16"}
 FLORES_DIR="./data/flores-200/"
 OUTPUT_DIR="$WORKDIR/eval"
-MODEL_DIR="$WORKDIR/train/checkpoint-16590"
-export HF_TOKEN="hf_tokenxyz"
+MODEL_DIR="$WORKDIR/train/"
+export HF_TOKEN="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"
+export HF_HOME=".cache/"
 export CXX=g++-11
 export CC=gcc-11
 export LD=g++-11
@@ -15,7 +16,7 @@ port=$(( RANDOM % (50000 - 30000 + 1 ) + 30000 ))
 
 accelerate launch --main_process_port ${port} --config_file configs/deepspeed_train_config.yaml \
      run_llmmt.py \
-    --model_name_or_path yellow-AI-NLP/komodo-7b-base \
+    --model_name_or_path Yellow-AI-NLP/komodo-7b-base \
     --torch_dtype "bfloat16" \
     --mmt_data_path  ${FLORES_DIR} \
     --use_peft \

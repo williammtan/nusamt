@@ -23,15 +23,15 @@ steps:
   #     tgt_output: !varstr "{source}-{target}.nllb.{target}.gz"
   #     suppress_prompts: true
   
-  - type: subset
-    parameters:
-      inputs:
-        - !varstr "{source}-{target}.nllb.{source}.gz"
-        - !varstr "{source}-{target}.nllb.{target}.gz"
-      outputs:
-        - !varstr "{source}-{target}.nllbsub.{source}.gz"
-        - !varstr "{source}-{target}.nllbsub.{target}.gz"
-      size: 1000000
+  # - type: subset
+  #   parameters:
+  #     inputs:
+  #       - !varstr "{source}-{target}.nllb.{source}.gz"
+  #       - !varstr "{source}-{target}.nllb.{target}.gz"
+  #     outputs:
+  #       - !varstr "{source}-{target}.nllbsub.{source}.gz"
+  #       - !varstr "{source}-{target}.nllbsub.{target}.gz"
+  #     size: 1000000
   
   # B) WikiMatrix
   - type: opus_read
@@ -93,8 +93,8 @@ steps:
         - !varstr "{cache_dir}/nusa_writes/{source}-{target}.{source}.gz"
         - !varstr "{cache_dir}/baliwiki/{source}-{target}.{source}.gz"
         - !varstr "{cache_dir}/bible_verses/{source}-{target}/{source}-{target}.{source}.gz"
-        - !varstr "{cache_dir}/minangnlp/{source}-{target}/{source}-{target}.{source}.gz"
-        - !varstr "{cache_dir}/indonesianmnt/{source}-{target}/{source}-{target}.{source}.gz"
+        - !varstr "{cache_dir}/minangnlp/{source}-{target}.{source}.gz"
+        - !varstr "{cache_dir}/indonesianmnt/{source}-{target}.{source}.gz"
       output: !varstr "{source}-{target}.{source}.combined.gz"
     
   - type: concatenate
@@ -106,8 +106,8 @@ steps:
         - !varstr "{cache_dir}/nusa_writes/{source}-{target}.{target}.gz"
         - !varstr "{cache_dir}/baliwiki/{source}-{target}.{target}.gz"
         - !varstr "{cache_dir}/bible_verses/{source}-{target}/{source}-{target}.{target}.gz"
-        - !varstr "{cache_dir}/minangnlp/{source}-{target}/{source}-{target}.{target}.gz"
-        - !varstr "{cache_dir}/indonesianmnt/{source}-{target}/{source}-{target}.{target}.gz"
+        - !varstr "{cache_dir}/minangnlp/{source}-{target}.{target}.gz"
+        - !varstr "{cache_dir}/indonesianmnt/{source}-{target}.{target}.gz"
       output: !varstr "{source}-{target}.{target}.combined.gz"
   
   - type: preprocess
@@ -174,30 +174,30 @@ steps:
             languages:
               - !varstr "{nllb_source}"
               - !varstr "{nllb_target}"
-            threshold: 0.6
+            threshold: 0.7
           module: filters
   
-  - type: preprocess
-    parameters:
-      inputs:
-        - !varstr "{source}-{target}.{source}.filtered.gz"
-        - !varstr "{source}-{target}.{target}.filtered.gz"
-      outputs:
-        - !varstr "{source}-{target}.{source}.aligned.gz"
-        - !varstr "{source}-{target}.{target}.aligned.gz"
-      preprocessors:
-        - AlignGPTCleaner:
-            source_language: !varstr "{source_fullname}"
-            target_language: !varstr "{target_fullname}"
-          module: filters
+  # - type: preprocess
+  #   parameters:
+  #     inputs:
+  #       - !varstr "{source}-{target}.{source}.filtered.gz"
+  #       - !varstr "{source}-{target}.{target}.filtered.gz"
+  #     outputs:
+  #       - !varstr "{source}-{target}.{source}.aligned.gz"
+  #       - !varstr "{source}-{target}.{target}.aligned.gz"
+  #     preprocessors:
+  #       - AlignGPTCleaner:
+  #           source_language: !varstr "{source_fullname}"
+  #           target_language: !varstr "{target_fullname}"
+  #         module: filters
 
   - type: split
     parameters:
       divisor: 2
       seed: 0
       inputs:
-        - !varstr "{source}-{target}.{source}.aligned.gz"
-        - !varstr "{source}-{target}.{target}.aligned.gz"
+        - !varstr "{source}-{target}.{source}.filtered.gz"
+        - !varstr "{source}-{target}.{target}.filtered.gz"
       outputs:
         - !varstr "{source}-{target}.{source}.final.gz"
         - !varstr "{source}-{target}.{target}.final.gz"

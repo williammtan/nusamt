@@ -3,7 +3,7 @@ import os
 import openai
 import time
 import hashlib
-import anthropic
+# import anthropic
 from concurrent.futures import ThreadPoolExecutor
 
 ALIGN_PROMPT = """

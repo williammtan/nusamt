@@ -393,6 +393,26 @@ zcat data/ban-align/opus-nl/ban-id/ban-id.ban.aligned.gz data/ban-align/opus-bw/
 python bt-preprocess.py --language_directions "ban-en,ban-id,en-ban,id-ban" --model data/ban-align/train-model/ --output_dir "data/bt-align/examples/" --url_json_path configs/wiki_urls.json --max_sentences 100000
 
 
-MIN
+MIN:
 
 python preprocess.py --language_pairs "id-min,en-min" --cleaner data/cleaner/model/ --output_dir data/min/ --lid_threshold 0.9 --laser_threshold 1.09 1.09 --n_gpus 2 --overwrite_opus
+
+AlignGPT + BT:
+
+python bt-preprocess.py --language_directions "ban-en,ban-id,en-ban,id-ban" --model data/ban-align/train-model/ --output_dir "data/bt-align/examples/" --url_json_path configs/wiki_urls.json --max_sentences 100000 && python bt-preprocess-opus.py --language_directions "ban-en,ban-id,en-ban,id-ban" --output_dir "data/bt-align/examples/"  --overwrite_opus
+
+bash run-bt-train.sh
+
+
+
+touch /workspace/ALMA-git/.cache/preprocess/baliwiki/id-min.min.gz
+touch /workspace/ALMA-git/.cache/preprocess/baliwiki/id-min.id.gz
+touch /workspace/ALMA-git/.cache/preprocess/baliwiki/en-min.min.gz
+touch /workspace/ALMA-git/.cache/preprocess/baliwiki/en-min.en.gz
+
+
+#### BAN MIN
+
+
+
+python preprocess.py --language_pairs "ban-id,ban-en,id-min,en-min" --cleaner data/cleaner/model/ --output_dir data/banmin/ --lid_threshold 0.9 --laser_threshold 1.15 1.15 1.15 1.15 --n_gpus 1 --overwrite_opus
