@@ -23,3 +23,7 @@ scikit-learn
 torch==2.3.0
 torchvision==0.18.0
 laser_encoders
+python-doctr 
+Spire.Doc 
+pdf2docx 
+openai
