@@ -3,7 +3,6 @@ datasets
 python-dotenv
 vllm
 fasttext
-# git+https://github.com/fe1ixxu/ALMA.git@alma-r-hf
 peft
 sentencepiece
 sacrebleu

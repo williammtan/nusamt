@@ -11,7 +11,6 @@ human_written_data_old/
 human_written_data1/
 models/
 .cache/
-alma-7b-*
 wiki-dump
 backtranslation-ban/
 lid218e.bin
