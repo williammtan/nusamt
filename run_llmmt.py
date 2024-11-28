@@ -53,6 +53,8 @@ from peft import get_peft_config, get_peft_model, LoraConfig, TaskType
 
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
 
+import datetime
+torch.distributed.init_process_group("nccl", init_method=None, timeout=datetime.timedelta(seconds=1800), world_size=- 1, rank=- 1, store=None, group_name='', pg_options=None)
 
 def main():
     # See all possible arguments in src/transformers/training_args.py

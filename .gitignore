@@ -1,4 +1,4 @@
-*/__pycache__/*
+__pycache__/
 archive/*
 .ipynb_checkpoints/
 ban-data/
@@ -6,13 +6,11 @@ flores-eval/
 openai/
 output-eval-ban-flores/
 output-eval-flores/
-tokenizer/
 human_written_data/
 human_written_data_old/
 human_written_data1/
 models/
 .cache/
-alma-7b-*
 wiki-dump
 backtranslation-ban/
 lid218e.bin
@@ -22,3 +20,6 @@ output-*
 human_written_data*/
 archive
 outputs/
+data/
+.env
+wandb/

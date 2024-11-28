@@ -30,7 +30,6 @@ from transformers import (
     default_data_collator,
     is_torch_tpu_available,
     set_seed,
-    LlamaTokenizer,
 )
 from transformers.testing_utils import CaptureLogger
 from transformers.trainer_utils import get_last_checkpoint
@@ -301,6 +300,9 @@ def print_trainable_parameters(model):
 
 
 def clean_outputstring(output, key_word, logger, split_idx):
+    if isinstance(output, bytes):
+        output = output.decode('utf-8', errors="ignore")
+
     try:
         out = output.split(key_word)[split_idx].split("\n")
         if out[0].strip() != "":
@@ -408,7 +410,9 @@ def load_model(data_args, model_args, training_args, tokenizer, logger):
             model = get_peft_model(model, config)
         print_trainable_parameters(model)
 
-    if "llama" in model_args.model_name_or_path or "komodo" in model_args.model_name_or_path or "nusa" in model_args.model_name_or_path:
+    if "Llama-3" in model_args.model_name_or_path:
+        model.config.pad_token_id = tokenizer.pad_token_id
+    elif "llama" in model_args.model_name_or_path or "komodo" in model_args.model_name_or_path or "nusa" in model_args.model_name_or_path:
         model.config.pad_token_id = 0
         model.config.bos_token_id = 1
         model.config.eos_token_id = 2
@@ -443,7 +447,7 @@ def load_tokenizer(data_args, model_args, training_args, logger):
         "revision": model_args.model_revision,
         "use_auth_token": True if model_args.use_auth_token else None,
         "padding_side": 'left' if not data_args.right_pad else "right",
-        "add_eos_token": False,
+        "add_eos_token": "Llama-3" in model_args.model_name_or_path,
     }
         
     if model_args.tokenizer_name:
@@ -456,7 +460,7 @@ def load_tokenizer(data_args, model_args, training_args, logger):
                 **tokenizer_kwargs, 
             )
         elif "llama" in model_args.model_name_or_path or "BigTranslate" in model_args.model_name_or_path or "ALMA" in model_args.model_name_or_path:
-            tokenizer = LlamaTokenizer.from_pretrained(
+            tokenizer = AutoTokenizer.from_pretrained(
                 model_args.model_name_or_path, 
                 **tokenizer_kwargs, 
             )
@@ -471,7 +475,11 @@ def load_tokenizer(data_args, model_args, training_args, logger):
             "You can do it from another script, save it, and load it from here, using --tokenizer_name."
         )
 
-    if "llama" in model_args.model_name_or_path or "komodo" in model_args.model_name_or_path or "nusa" in model_args.model_name_or_path:
+    if "Llama-3" in model_args.model_name_or_path:
+        # tokenizer.pad_token_id = tokenizer.eos_token_id
+        # tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.add_special_tokens({"pad_token":"<pad>"})
+    elif "llama" in model_args.model_name_or_path or "komodo" in model_args.model_name_or_path or "nusa" in model_args.model_name_or_path:
         tokenizer.pad_token_id = 0
         tokenizer.bos_token_id = 1
         tokenizer.eos_token_id = 2
